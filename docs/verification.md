@@ -115,8 +115,8 @@ ros2 launch rgbd_camera camera.launch.py backend:=realsense \
 
 This wider tolerance admits the measured asynchronous pair; it does not establish
 motion compensation or simultaneous exposure. Record actual skew for each scene.
-The subsequent 5.17.0.10 sweep measured approximately 12 ms depth-before-RGB
-skew at native 30 Hz and 7.63 ms at native 60 Hz, also exceeding the default.
+The subsequent 5.17.0.10 sweeps measured approximately 12 ms depth-before-RGB
+skew at native 30 Hz and 7.17–8.18 ms at native 60 Hz, also exceeding the default.
 For the D455 60 Hz native mode, the comparison uses 8.3 ms, below half its native
 frame period. Output selection at rates that do not divide the native rate
 (for example 35, 40, 45, 50 or 55 Hz from 60 Hz) has nonuniform exposure intervals.

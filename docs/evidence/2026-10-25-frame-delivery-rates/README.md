@@ -231,9 +231,10 @@ optical-Z depth. Requests through 30 Hz use native 30 Hz capture and an explicit
 The default 5 ms tolerance is unchanged. These wider comparison settings admit
 asynchronous exposures; they do not establish motion compensation.
 Measured depth preceded RGB by 11.82–12.42 ms in the lit 10–30 Hz sweep and
-about 7.63 ms in native-60-Hz measurements. These observed offsets exceed the
-unchanged default 5 ms tolerance. The reported source ages begin at RGB
-acquisition; the corresponding depth exposure is older by the measured offset.
+7.17–8.18 ms in native-60-Hz measurements, including the later lit repeats.
+These observed offsets exceed the unchanged default 5 ms tolerance. The reported
+source ages begin at RGB acquisition; the corresponding depth exposure is older
+by the measured offset.
 
 The lit 10–30 Hz runs delivered every admitted frame and batch, with zero pair
 rejections, detector overload/failure counters, invalid XYZ or empty batches.
@@ -302,6 +303,61 @@ intentional native-rate output selection. One detector replacement in the
 not recur during measurement. CPU averaged 48.5% / 244.4% of one core, with
 maximum observed RSS 581.8 / 585.2 MiB at 10 / 60 Hz.
 
+### D455 35–60 Hz repeat after lighting was restored
+
+The same final candidate repeated all six rates with visible cones. Every
+admitted frame and detection batch reached the external reader. Every timed
+batch contained at least two valid spatial results, with no empty batches,
+pair rejections or detector overload/failure counters.
+
+| Requested Hz | Delivered Hz | Admitted = frames = batches | Frame age p95 ms | Result age p50 / p95 / p99 / max ms | Valid / invalid XYZ |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 35 | 35.000 | 4,193 | 29.59 | 36.85 / 37.97 / 38.66 / 40.97 | 8,413 / 949 |
+| 40 | 40.001 | 4,792 | 29.95 | 37.02 / 38.33 / 38.97 / 41.01 | 9,627 / 938 |
+| 45 | 45.003 | 5,391 | 29.50 | 36.96 / 37.84 / 38.37 / 40.00 | 10,832 / 1,330 |
+| 50 | 50.006 | 5,991 | 29.46 | 36.90 / 37.82 / 38.31 / 40.06 | 12,064 / 2,538 |
+| 55 | 54.998 | 6,589 | 29.50 | 36.85 / 37.82 / 38.39 / 40.74 | 13,218 / 2,968 |
+| 60 | 59.756 | 7,159 | 29.35 | 36.75 / 37.74 / 38.30 / 42.15 | 14,342 / 2,071 |
+
+The 60 Hz request matched the measured native clock with no native sequence
+gaps. One detector replacement occurred around the first eleven received frames,
+three seconds before measurement began; it did not recur in the timed window.
+Container CPU averaged 155.9–246.4% of one core across 35–60 Hz, with maximum
+observed RSS of 556.7–587.1 MiB.
+
+The additional detections need a separate interpretation from delivery. A
+30-batch diagnostic, outside the accepted rate measurements, captured a matched
+image and complete detection/spatial metadata. The two physical cones had valid
+positions. An extra `blue_cone` detection at approximately pixel (364, 364),
+confidence 0.55, covered blue foreground hardware. Its central depth region had
+zero usable pixels and was correctly reported as `insufficient_depth` with NaN
+XYZ. The diagnostic's invalid results were nearby extra blue detections with the
+same reason.
+
+Some sweep batches also contained a third valid spatial result. A valid XYZ flag
+establishes usable depth for a detection, not that the detection is a real cone.
+The counts above therefore retain both extra valid and invalid results. No model
+thresholds or spatial filters were changed. These runs establish throughput with
+positive spatial workload; they do not establish detector precision or recall.
+
+### D455 lit ten-minute confirmations
+
+Both lit confirmations delivered every admitted frame and batch, with at least
+two valid spatial results per batch. There were no empty batches, pair rejections
+or detector overload/failure counters during measurement. Additional detections
+remain included in the valid/invalid XYZ counts, as discussed above.
+
+| Requested Hz | Delivered Hz | Admitted = frames = batches | Frame age p95 ms | Result age p50 / p95 / p99 / max ms | Arrival interval p95 / max ms | Valid / invalid XYZ |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 10.000 | 5,998 | 29.55 | 36.94 / 37.96 / 38.49 / 40.66 | 101.29 / 105.85 | 12,019 / 6,608 |
+| 60 | 59.756 | 35,841 | 29.29 | 36.69 / 37.66 / 38.13 / 40.82 | 18.06 / 22.51 | 71,777 / 17,314 |
+
+The 60 Hz run had no native sequence gaps. One detector replacement occurred
+at startup, 3.25 seconds before measurement, and did not recur. Container CPU
+averaged 48.9% / 245.5% of one core, with maximum observed RSS 583.3 / 586.6 MiB
+at 10 / 60 Hz. Depth preceded RGB by 6.91–10.83 ms at 10 Hz and 7.17–7.63 ms at
+60 Hz; the explicit 16.6 / 8.3 ms comparison tolerances remained unchanged.
+
 ## Verification and preservation
 
 - The final dual-backend build passed the core, ROS-adapter and RealSense-geometry
@@ -323,9 +379,12 @@ maximum observed RSS 581.8 / 585.2 MiB at 10 / 60 Hz.
 - After the initial campaign, the task reservation and temporary USB helper ended,
   original USB access permissions were restored, and no task camera processes
   remained. Service identities were checked again after cleanup.
-- The lit OAK follow-up reused the same tested binaries and passed another
+- The lit OAK and D455 follow-ups reused the same tested binaries and passed a
   preservation audit of the deployment, service identities, installed files,
-  profiles, classroom Git state and power mode. No implementation changed.
+  profiles, classroom Git state and power mode after all measurements. Their
+  reservation and temporary USB helper ended, original USB permissions were
+  restored, and no task camera processes remained. Service identities and binary
+  hashes were checked again during cleanup. No implementation changed.
 
 ## What these results establish
 
@@ -334,11 +393,12 @@ external delivery on both cameras. The OAK sustained positive cone/XYZ workload
 through 45 Hz, including ten-minute confirmations at 10, 35 and 45 Hz. Its lit
 40 Hz sweep retained low source age; 45 Hz added throughput with greater age and
 jitter, while requests of 50 Hz or more degraded output. The updated D455
-sustained positive workload through 30 Hz and dark-scene
-capture/inference/delivery through its native 60 Hz profile.
+sustained positive spatial workload through its native 60 Hz profile, with at
+least two valid spatial results in every timed batch of the lit 35–60 Hz repeat
+and the ten-minute confirmations at 10 and 60 Hz.
+Additional detections on foreground hardware remain a separate model-accuracy
+limitation; the report retains their valid and invalid spatial outcomes.
 
-The lit D455 repeat above 30 Hz remains outstanding. Do not extrapolate its
-empty-detection measurements to positive cone/XYZ workload.
 These are bounded, stationary-scene, same-host observations with the specified
 profiles and model. They do not establish indefinite delivery, hard-real-time
 deadlines, other resolutions/presets, remote transport, metric depth accuracy,
