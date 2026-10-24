@@ -8,9 +8,9 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
-    defaults = {"device_id": "", "fps": "10.0", "enable_imu": "false",
+    defaults = {"backend": "oak", "device_id": "", "fps": "10.0", "enable_imu": "false",
                 "publish_images": "false", "pairing_tolerance_ms": "5.0"}
-    types = {"device_id": str, "fps": float, "enable_imu": bool,
+    types = {"backend": str, "device_id": str, "fps": float, "enable_imu": bool,
              "publish_images": bool, "pairing_tolerance_ms": float}
     return LaunchDescription([
         *[DeclareLaunchArgument(name, default_value=value) for name, value in defaults.items()],

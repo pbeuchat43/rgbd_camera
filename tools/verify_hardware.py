@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded OAK acceptance. Requires exclusive, explicitly authorized hardware use."""
+"""Bounded camera acceptance. Requires exclusive, explicitly authorized hardware use."""
 import argparse
 import array
 import json
@@ -34,11 +34,16 @@ def stamp_ns(header):
 
 
 class Observer(Node):
-    def __init__(self, name, camera, imu, tolerance_ms, images=False):
+    def __init__(self, name, camera, imu, tolerance_ms, images=False, backend="oak"):
         super().__init__(name)
         self.camera, self.imu, self.tolerance_ms = camera, imu, tolerance_ms
+        self.backend = backend
+        self.width, self.height = 640, 480 if backend == "realsense" else 640
+        self.optical_frame = backend + "_rgb_optical_frame"
+        self.imu_axes = "sdk_depth_oriented_at_imu_origin" if backend == "realsense" else "sensor_native"
         self.frames, self.age_ms, self.skew_ms = [], [], []
         self.accel, self.gyro, self.statuses = [], [], []
+        self.motion_leads_ns = {"accelerometer": [], "gyroscope": []}
         self.depth_sample = None
         self.standard_counts = dict(rgb=0, depth=0, rgb_info=0, depth_info=0)
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -59,11 +64,11 @@ class Observer(Node):
                     CameraInfo, f"/{camera}/{stream}/camera_info", lambda msg, key=stream + "_info": self.standard(msg, key), qos))
 
     def standard(self, message, key):
-        require(message.width == message.height == 640 and message.header.frame_id == "oak_rgb_optical_frame", "bad standard image geometry")
+        require((message.width, message.height) == (self.width, self.height) and message.header.frame_id == self.optical_frame, "bad standard image geometry")
         if key == "rgb":
-            require(message.encoding == "bgr8" and len(message.data) == 640 * 640 * 3, "bad standard RGB")
+            require(message.encoding == "bgr8" and len(message.data) == self.width * self.height * 3, "bad standard RGB")
         elif key == "depth":
-            require(message.encoding == "16UC1" and len(message.data) == 640 * 640 * 2, "bad standard depth")
+            require(message.encoding == "16UC1" and len(message.data) == self.width * self.height * 2, "bad standard depth")
         else:
             require(message.k[0] > 0 and list(message.d) == [0.0] * 5, "bad standard CameraInfo")
         self.standard_counts[key] += 1
@@ -73,12 +78,13 @@ class Observer(Node):
         now = time.monotonic_ns()
         require(capture.schema_version == 1, "unsupported schema")
         require(capture.stream_id == "rgbd", "missing image stream identity")
-        require(capture.source_id.startswith("oak:") and capture.generation, "missing device identity")
+        require(capture.source_id.startswith(self.backend + ":") and capture.generation, "missing device identity")
         require(capture.clock_domain.startswith("linux_monotonic:"), "wrong clock domain")
-        require(message.rgb.width == message.rgb.height == 640, "wrong RGB dimensions")
-        require(message.depth.width == message.depth.height == 640, "wrong depth dimensions")
+        require((message.rgb.width, message.rgb.height) == (self.width, self.height), "wrong RGB dimensions")
+        require((message.depth.width, message.depth.height) == (self.width, self.height), "wrong depth dimensions")
+        require(message.rgb.header.frame_id == message.depth.header.frame_id == self.optical_frame, "wrong optical frame")
         require(message.rgb.encoding == "bgr8" and message.depth.encoding == "16UC1", "wrong formats")
-        require(len(message.rgb.data) == 640 * 640 * 3 and len(message.depth.data) == 640 * 640 * 2, "wrong buffer size")
+        require(len(message.rgb.data) == self.width * self.height * 3 and len(message.depth.data) == self.width * self.height * 2, "wrong buffer size")
         require(message.rgb_info.header == message.rgb.header and message.depth_info.header == message.depth.header, "geometry not bound")
         require(list(message.rgb_info.k) == list(message.depth_info.k) and message.rgb_info.k[0] > 0, "geometry mismatch")
         require(list(message.rgb_info.d) == [0.0] * 5 and list(message.depth_info.d) == [0.0] * 5, "nonrectified geometry")
@@ -111,10 +117,13 @@ class Observer(Node):
 
     def motion(self, message):
         capture, sample = message.capture, message.sample
-        require(message.axes == "sensor_native" and sample.header.frame_id != "oak_rgb_optical_frame", "IMU axes relabeled")
+        require(message.axes == self.imu_axes and sample.header.frame_id != self.optical_frame, "IMU axes relabeled")
         require(sample.orientation_covariance[0] == -1, "orientation fabricated")
         require(stamp_ns(sample.header) == capture.acquisition_ns + capture.unix_offset_ns, "IMU timestamp changed")
-        require(capture.acquisition_ns <= capture.received_ns <= time.monotonic_ns(), "invalid IMU clock ordering")
+        expected_tolerance = 5000000 if self.backend == "realsense" else 0
+        require(message.future_tolerance_ns == expected_tolerance, "wrong IMU clock allowance")
+        require(capture.acquisition_ns - capture.received_ns <= message.future_tolerance_ns and
+                capture.received_ns <= time.monotonic_ns(), "invalid IMU clock ordering")
         if message.kind == "accelerometer":
             require(capture.stream_id == "accel", "missing accel stream identity")
             values = sample.linear_acceleration
@@ -130,6 +139,7 @@ class Observer(Node):
         if target:
             require(capture.acquisition_ns > target[-1][0], "IMU sample repeated/regressed")
         target.append((capture.acquisition_ns, capture.sequence, values.x, values.y, values.z, capture.generation))
+        self.motion_leads_ns[message.kind].append(capture.acquisition_ns - capture.received_ns)
 
 
 def proc_sample(pid):
@@ -158,7 +168,7 @@ def stop(process, check_exit=True):
 
 
 def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, slow=False):
-    observer = Observer(f"observer_{name}", "camera", imu, tolerance, images=composed)
+    observer = Observer(f"observer_{name}", "camera", imu, tolerance, images=composed, backend=args.backend)
     executor = SingleThreadedExecutor()
     executor.add_node(observer)
     slow_sequences = []
@@ -171,10 +181,10 @@ def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, sl
              "--output", str(args.output / "slow-consumer.json")],
             stdout=slow_log, stderr=subprocess.STDOUT, start_new_session=True)
     command = (["ros2", "launch", "rgbd_camera", "camera.launch.py",
-                f"device_id:={args.device}", f"enable_imu:={str(imu).lower()}",
+                f"backend:={args.backend}", f"device_id:={args.device}", f"enable_imu:={str(imu).lower()}",
                 f"pairing_tolerance_ms:={tolerance}", "publish_images:=true"] if composed else
                [args.executable, "--ros-args", "-r", "__node:=camera", "-p", f"device_id:='{args.device}'",
-                "-p", f"enable_imu:={str(imu).lower()}", "-p", f"pairing_tolerance_ms:={tolerance}"])
+                "-p", f"backend:={args.backend}", "-p", f"enable_imu:={str(imu).lower()}", "-p", f"pairing_tolerance_ms:={tolerance}"])
     log = (args.output / f"{name}.log").open("w")
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     baseline = None
@@ -205,7 +215,7 @@ def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, sl
             require(all(value >= 30 for value in observer.standard_counts.values()), "standard image branch incomplete")
         end_time, end_sample = time.monotonic(), proc_sample(process.pid)
         status = observer.statuses[-1]
-        result = dict(name=name, layout="composed" if composed else "standalone", imu=imu,
+        result = dict(name=name, backend=args.backend, layout="composed" if composed else "standalone", imu=imu,
                       tolerance_ms=tolerance, frames=len(observer.frames), first=observer.frames[0], last=observer.frames[-1],
                       frame_rate_hz=(len(observer.frames) - 1) * 1e9 / (observer.frames[-1]["acquisition_ns"] - observer.frames[0]["acquisition_ns"]),
                       source_sequence_rate_hz=(observer.frames[-1]["sequence"] - observer.frames[0]["sequence"]) * 1e9 / (observer.frames[-1]["acquisition_ns"] - observer.frames[0]["acquisition_ns"]),
@@ -217,7 +227,13 @@ def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, sl
                       accel_rate_hz=(len(observer.accel) - 1) * 1e9 / (observer.accel[-1][0] - observer.accel[0][0]) if imu else None,
                       gyro_rate_hz=(len(observer.gyro) - 1) * 1e9 / (observer.gyro[-1][0] - observer.gyro[0][0]) if imu else None,
                       accel_first=observer.accel[0] if imu else None, gyro_first=observer.gyro[0] if imu else None,
+                      imu_clock_estimates={kind: dict(samples=len(values),
+                          future_count=sum(value > 0 for value in values),
+                          min_acquisition_minus_receipt_ns=min(values),
+                          max_acquisition_minus_receipt_ns=max(values))
+                          for kind, values in observer.motion_leads_ns.items() if values},
                       state=dict(usb_speed=status.usb_speed, imu_sensor=status.imu_sensor, frames=status.frames,
+                                 detail=status.detail, last_skew_ns=status.last_skew_ns,
                                  pairs_received=status.pairs_received, sequence_gaps=status.sequence_gaps,
                                  rejected_pairs=status.rejected_pairs, imu_sequence_gaps=status.imu_sequence_gaps,
                                  imu_state=status.imu_state),
@@ -227,10 +243,10 @@ def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, sl
         # Same physical camera while the first owner is active; never stop the first.
         if name == "standalone":
             frames_before_conflict = len(observer.frames)
-            conflict = Observer("conflict_observer", "conflict", False, 5.0)
+            conflict = Observer("conflict_observer", "conflict", False, 5.0, backend=args.backend)
             executor.add_node(conflict)
             with (args.output / "conflict.log").open("w") as conflict_log:
-                contender = subprocess.Popen([args.executable, "--ros-args", "-r", "__node:=conflict", "-p", f"device_id:='{args.device}'"],
+                contender = subprocess.Popen([args.executable, "--ros-args", "-r", "__node:=conflict", "-p", f"device_id:='{args.device}'", "-p", f"backend:={args.backend}"],
                                              stdout=conflict_log, stderr=subprocess.STDOUT, start_new_session=True)
                 try:
                     until = time.monotonic() + 12
@@ -262,12 +278,12 @@ def run_case(args, name, composed=False, imu=False, tolerance=5.0, count=120, sl
 
 
 def invalid_selection(args):
-    observer = Observer("invalid_observer", "invalid_camera", False, 5.0)
+    observer = Observer("invalid_observer", "invalid_camera", False, 5.0, backend=args.backend)
     executor = SingleThreadedExecutor()
     executor.add_node(observer)
     with (args.output / "invalid-selection.log").open("w") as log:
         process = subprocess.Popen([args.executable, "--ros-args", "-r", "__node:=invalid_camera",
-                                    "-p", "device_id:=not_a_real_camera"],
+                                    "-p", "device_id:=not_a_real_camera", "-p", f"backend:={args.backend}"],
                                    stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             deadline = time.monotonic() + 12
@@ -286,6 +302,8 @@ def invalid_selection(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", required=True)
+    parser.add_argument("--backend", choices=["oak", "realsense"], default="oak")
+    parser.add_argument("--tolerance-ms", type=float, help="Explicit override for every case; record with measured skew")
     parser.add_argument("--executable", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--case", choices=["all", "standalone", "imu", "composed"], default="all")
@@ -296,11 +314,11 @@ def main():
     results = []
     try:
         if args.case in ("all", "standalone"):
-            results.append(run_case(args, "standalone", slow=True))
+            results.append(run_case(args, "standalone", slow=True, tolerance=args.tolerance_ms if args.tolerance_ms is not None else 5.0))
         if args.case in ("all", "imu"):
-            results.append(run_case(args, "imu", imu=True, tolerance=8.0))
+            results.append(run_case(args, "imu", imu=True, tolerance=args.tolerance_ms if args.tolerance_ms is not None else 8.0))
         if args.case in ("all", "composed"):
-            results.append(run_case(args, "composed", composed=True, imu=True))
+            results.append(run_case(args, "composed", composed=True, imu=True, tolerance=args.tolerance_ms if args.tolerance_ms is not None else 5.0))
         require(len({r["first"]["generation"] for r in results}) == len(results), "restart reused session identity")
         failure_detail = invalid_selection(args)
         (args.output / "report.json").write_text(json.dumps(dict(passed=True, cases=results, invalid_selection=failure_detail), indent=2) + "\n")

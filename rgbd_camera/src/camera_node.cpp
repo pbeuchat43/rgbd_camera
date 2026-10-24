@@ -38,7 +38,8 @@ class CameraNode::Implementation {
       : node_(node), provider_(std::move(provider)) {
     if (node.get_parameter("use_sim_time").as_bool())
       throw std::runtime_error("physical acquisition cannot use simulated ROS time");
-    config_.device_id = setting<std::string>(node, "device_id", "", "Exact OAK ID, or require exactly one available device");
+    config_.backend = setting<std::string>(node, "backend", "oak", "Explicit camera family: oak or realsense");
+    config_.device_id = setting<std::string>(node, "device_id", "", "Exact device ID within the selected backend, or require exactly one device");
     config_.fps = setting<double>(node, "fps", 10.0, "RGB/depth rate request, 1..30 Hz");
     config_.pairing_tolerance_ms = setting<double>(node, "pairing_tolerance_ms", 5.0,
         "Maximum accepted RGB/depth skew, 0.1..50 ms and below half a frame period");
@@ -50,9 +51,11 @@ class CameraNode::Implementation {
         "Raw acquisition silence deadline, 1..30 seconds; does not count rejected pairs as silence");
     config_.enable_imu = setting<bool>(node, "enable_imu", false, "Enable raw accel and gyro from the same camera session");
     config_.publish_images = setting<bool>(node, "publish_images", false, "Also publish standard RGB/depth topics (copies)");
-    config_.optical_frame = setting<std::string>(node, "optical_frame", "oak_rgb_optical_frame", "Rectified RGB optical frame");
-    config_.imu_frame = setting<std::string>(node, "imu_frame", "oak_imu_native_frame", "Native IMU axes, no mounting transform implied");
+    config_.optical_frame = setting<std::string>(node, "optical_frame", config_.backend + "_rgb_optical_frame", "Rectified RGB optical frame");
+    config_.imu_frame = setting<std::string>(node, "imu_frame", config_.backend == "oak" ? "oak_imu_native_frame" : "realsense_imu_frame",
+        "Backend-declared IMU axes and origin; no mounting transform implied");
     config_.validate();
+    if (!provider_) provider_ = make_provider(config_.backend);
     const auto image_qos = rclcpp::SensorDataQoS().keep_last(1);
     frames_ = node.create_publisher<FrameMessage>("~/frames", image_qos);
     status_publisher_ = node.create_publisher<StatusMessage>("~/status", rclcpp::QoS(1).best_effort());
@@ -125,7 +128,8 @@ class CameraNode::Implementation {
     const auto sequence = accelerometer ? ++accel_sequence_ : ++gyro_sequence_;
     output->capture = reference(accelerometer ? "accel" : "gyro", sequence, input.acquisition_ns, input.received_ns);
     output->sensor_sequence = input.sequence;
-    output->sensor = identity_.imu_sensor; output->axes = "sensor_native";
+    output->future_tolerance_ns = identity_.imu_future_tolerance_ns;
+    output->sensor = identity_.imu_sensor; output->axes = identity_.imu_axes;
     output->sample.header = header(input.acquisition_ns, config_.imu_frame);
     output->sample.orientation_covariance[0] = -1;
     output->sample.angular_velocity_covariance[0] = -1;
@@ -172,12 +176,16 @@ class CameraNode::Implementation {
         status_.clock_domain = identity_.clock_domain; status_.backend = identity_.backend;
         status_.usb_speed = identity_.usb_speed; status_.imu_sensor = identity_.imu_sensor;
       }
-      PairGate pairs(config_); MotionGate motion;
+      PairGate pairs(config_); MotionGate motion(identity_.imu_future_tolerance_ns);
       int64_t last_raw = 0;
       while (!stopping_ && rclcpp::ok(node_.get_node_base_interface()->get_context())) {
         auto products = provider_->poll();
         const auto now = monotonic_ns();
         if (products.motion.size() > 20) throw std::runtime_error("provider exceeded motion batch bound");
+        if (!products.frame && !last_raw && !products.diagnostic.empty()) {
+          std::lock_guard<std::mutex> guard(mutex_);
+          status_.detail = products.diagnostic.substr(0,1024);
+        }
         if (products.frame) {
           last_raw = now;
           const auto reason = pairs.admit(*products.frame, now);
@@ -186,7 +194,7 @@ class CameraNode::Implementation {
             ++status_.pairs_received; status_.sequence_gaps = pairs.gaps();
             status_.last_pair_received_ns = products.frame->received_ns;
             status_.last_skew_ns = products.frame->depth_acquisition_ns - products.frame->acquisition_ns;
-            status_.detail = reason.value_or("");
+            status_.detail = reason.value_or(products.diagnostic.substr(0,1024));
             if (reason) { ++status_.rejected_pairs; if (status_.frames == 0) status_.state = "unavailable"; }
             else { ++status_.frames; status_.last_acquisition_ns = products.frame->acquisition_ns; status_.state = "streaming"; }
           }
@@ -203,7 +211,7 @@ class CameraNode::Implementation {
         }
         if ((!last_raw && now - started > config_.startup_timeout_s * 1e9) ||
             (last_raw && now - last_raw > config_.stall_timeout_s * 1e9))
-          throw std::runtime_error(last_raw ? "raw_acquisition_stalled" : "first_pair_timeout");
+          throw std::runtime_error(last_raw ? "raw_acquisition_stalled" : "first_pair_timeout: " + products.diagnostic.substr(0,1024));
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
     } catch (const std::exception& error) {
@@ -238,7 +246,7 @@ class CameraNode::Implementation {
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr accel_standard_, gyro_standard_;
 };
 
-CameraNode::CameraNode(const rclcpp::NodeOptions& options) : CameraNode(options, make_oak_provider()) {}
+CameraNode::CameraNode(const rclcpp::NodeOptions& options) : CameraNode(options, nullptr) {}
 CameraNode::CameraNode(const rclcpp::NodeOptions& options, std::unique_ptr<Provider> provider)
     : Node("rgbd_camera", options), impl_(std::make_unique<Implementation>(*this, std::move(provider))) {}
 CameraNode::~CameraNode() = default;

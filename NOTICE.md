@@ -16,3 +16,11 @@ https://github.com/luxonis/depthai-core/tree/v3.9.0.
 Future cone integration must preserve the model's exact descriptor/hash and
 provenance. The legacy model records conflicting AGPL metadata and MIT blob
 attribution; the package license alone does not resolve model licensing.
+
+## RealSense SDK
+
+The optional RealSense provider links to the separately installed official
+librealsense 2.56.3 SDK, commit `05d6eb7ec8efeed4d69b4025d9ff149e7132acd5`,
+under its Apache License 2.0. SDK files and firmware are not bundled here.
+Projection and timestamp semantics were checked against that pinned upstream
+source. Preserve the SDK's own license and notices in any redistribution.

@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>rgbd_camera</name><version>0.1.0</version>
-  <description>Shared OAK RGB-D acquisition and optional integrated IMU.</description>
+  <name>rgbd_camera</name><version>0.2.0</version>
+  <description>Shared OAK and RealSense RGB-D acquisition with optional integrated IMU.</description>
   <maintainer email="pbeuchat@unimelb.edu.au">Paul N. Beuchat</maintainer>
   <license>MIT</license>
   <buildtool_depend>ament_cmake</buildtool_depend>

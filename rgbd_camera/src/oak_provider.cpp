@@ -1,11 +1,8 @@
 // Copyright (c) 2026 Paul N. Beuchat. MIT License.
 // Pipeline/geometry design informed by UMelb's oakd_gpu_cone_detector (NOTICE.md).
 #include "rgbd_camera/provider.hpp"
+#include "rgbd_camera/device_lock.hpp"
 #include <depthai/depthai.hpp>
-#include <sys/file.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -23,28 +20,6 @@ template<class T> std::string label(T value) { std::ostringstream out; out << va
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
-
-class DeviceLock {
- public:
-  ~DeviceLock() { close(); }
-  void acquire(const std::string& serial) {
-    const auto directory = "/tmp/rgbd-camera-" + std::to_string(getuid());
-    if (::mkdir(directory.c_str(), 0700) != 0 && errno != EEXIST)
-      throw std::runtime_error("cannot create camera lock directory");
-    struct stat info{};
-    require(lstat(directory.c_str(), &info) == 0 && S_ISDIR(info.st_mode) &&
-            info.st_uid == getuid() && (info.st_mode & 077) == 0, "unsafe camera lock directory");
-    const auto path = directory + "/" + sha256(serial) + ".lock";
-    fd_ = ::open(path.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
-    require(fd_ >= 0, "cannot open camera ownership lock");
-    if (flock(fd_, LOCK_EX | LOCK_NB) != 0) {
-      close(); throw std::runtime_error("camera already owned by another rgbd_camera session");
-    }
-  }
-  void close() { if (fd_ >= 0) { ::close(fd_); fd_ = -1; } }
- private:
-  int fd_ = -1;
-};
 
 std::array<double, 9> intrinsics(dai::ImgFrame& image) {
   auto& transform = image.getTransformation();

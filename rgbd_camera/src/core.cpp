@@ -20,6 +20,7 @@ bool between(double value, double low, double high) {
 }
 
 void Config::validate() const {
+  require(backend == "oak" || backend == "realsense", "backend must be oak or realsense");
   require(between(fps, 1, 30), "fps must be finite and within [1, 30]");
   require(between(pairing_tolerance_ms, 0.1, 50) && pairing_tolerance_ms < 500.0 / fps,
           "pairing_tolerance_ms must be in [0.1, 50] and below half a frame period");
@@ -36,7 +37,7 @@ void Config::validate() const {
 }
 
 void Geometry::validate() const {
-  require(width == 640 && height == 640, "unsupported geometry dimensions");
+  require(width == 640 && (height == 640 || height == 480), "unsupported geometry dimensions");
   for (auto value : k) require(std::isfinite(value), "nonfinite intrinsics");
   require(k[0] > 0 && k[4] > 0 && k[2] >= 0 && k[2] < width && k[5] >= 0 && k[5] < height,
           "invalid focal length or principal point");
@@ -68,9 +69,11 @@ std::string sha256(const std::string& bytes) {
 PairGate::PairGate(Config config) : config_(std::move(config)) { config_.validate(); }
 std::optional<std::string> PairGate::admit(const Frame& frame, int64_t now_ns) {
   frame.geometry.validate();
-  require(frame.bgr.size() == 640 * 640 * 3 && frame.depth_le.size() == 640 * 640 * 2,
+  const size_t pixels = size_t(frame.geometry.width) * frame.geometry.height;
+  require(frame.bgr.size() == pixels * 3 && frame.depth_le.size() == pixels * 2,
           "invalid image buffer size");
-  if (geometry_) require(geometry_->k == frame.geometry.k &&
+  if (geometry_) require(geometry_->width == frame.geometry.width && geometry_->height == frame.geometry.height &&
+                        geometry_->k == frame.geometry.k &&
                         geometry_->calibration_id == frame.geometry.calibration_id,
                         "geometry changed; explicit new session required");
   else geometry_ = frame.geometry;
@@ -93,10 +96,14 @@ std::optional<std::string> PairGate::admit(const Frame& frame, int64_t now_ns) {
   return std::nullopt;
 }
 
+MotionGate::MotionGate(int64_t future_tolerance_ns) : future_tolerance_ns_(future_tolerance_ns) {
+  require(future_tolerance_ns >= 0 && future_tolerance_ns <= 5000000, "invalid IMU future tolerance");
+}
 bool MotionGate::admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns) {
   const auto index = sample.kind == MotionKind::Accelerometer ? 0 : 1;
   for (auto value : sample.xyz) require(std::isfinite(value), "nonfinite IMU sample");
-  require(sample.acquisition_ns > 0 && sample.acquisition_ns <= sample.received_ns &&
+  require(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
+          sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
           sample.received_ns <= now_ns, "invalid IMU clock mapping");
   require(sample.acquisition_ns >= last_ns_[index], "IMU acquisition clock regressed");
   if (sample.acquisition_ns == last_ns_[index]) return false;

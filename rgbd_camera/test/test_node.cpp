@@ -26,7 +26,7 @@ class Fixture : public Provider {
     const auto now = monotonic_ns();
     if (now - last_ < 20000000) return result;
     last_ = now;
-    if (++sequence_ == 80) throw std::runtime_error("synthetic_device_loss");
+    if (++sequence_ == 100) throw std::runtime_error("synthetic_device_loss");
     auto frame = std::make_unique<Frame>();
     frame->sequence = sequence_; frame->depth_sequence = sequence_ + 10;
     frame->acquisition_ns = now - 20000000;
@@ -35,7 +35,9 @@ class Fixture : public Provider {
     frame->geometry.k = {500, 0, 320, 0, 500, 320, 0, 0, 1};
     frame->geometry.calibration_id = "fixture";
     frame->bgr.resize(640 * 640 * 3); frame->depth_le.resize(640 * 640 * 2);
-    if (config_.enable_imu) {
+    // Simulate withheld IMU estimates while valid images continue; readiness
+    // must expire independently and recover when admissible samples resume.
+    if (config_.enable_imu && (sequence_ < 55 || sequence_ >= 75)) {
       result.motion.push_back({MotionKind::Accelerometer, sequence_, now - 2000000, now, {0, 0, 9.81}});
       result.motion.push_back({MotionKind::Gyroscope, sequence_, now - 1000000, now, {0, 0, 0}});
     }
@@ -54,11 +56,12 @@ int main(int argc, char** argv) {
   try {
     auto stopped = std::make_shared<std::atomic<bool>>(false);
     auto options = rclcpp::NodeOptions().use_intra_process_comms(true)
-      .parameter_overrides({{"enable_imu", true}});
+      .parameter_overrides({{"enable_imu", true}, {"max_frame_age_ms", 100.0}});
     auto camera = std::make_shared<CameraNode>(options, std::make_unique<Fixture>(stopped));
     auto observer = std::make_shared<rclcpp::Node>("contract_observer", rclcpp::NodeOptions().use_intra_process_comms(true));
     uint64_t frames = 0, accel = 0, gyro = 0;
     bool recovered = false, unavailable = false, error = false;
+    bool imu_expired_with_images = false, imu_recovered = false;
     auto frame_sub = observer->create_subscription<rgbd_camera_interfaces::msg::Frame>(
       "/rgbd_camera/frames", rclcpp::SensorDataQoS().keep_last(1),
       [&](rgbd_camera_interfaces::msg::Frame::ConstSharedPtr frame) {
@@ -92,6 +95,8 @@ int main(int argc, char** argv) {
       "/rgbd_camera/status", rclcpp::QoS(1).best_effort(),
       [&](rgbd_camera_interfaces::msg::Status::ConstSharedPtr status) {
         unavailable |= status->state == "unavailable" && status->rejected_pairs > 0;
+        imu_expired_with_images |= status->state == "streaming" && status->imu_state == "unavailable";
+        imu_recovered |= imu_expired_with_images && status->state == "streaming" && status->imu_state == "streaming";
         error |= status->state == "error" && status->detail == "synthetic_device_loss";
       });
     check(!camera->set_parameters({rclcpp::Parameter("pairing_tolerance_ms", 10.0)})[0].successful,
@@ -104,6 +109,7 @@ int main(int argc, char** argv) {
     }
     check(frames > 10 && accel > frames && gyro > frames, "missing independent streams");
     check(recovered && unavailable && error && stopped->load(), "fault/recovery policy failed");
+    check(imu_expired_with_images && imu_recovered, "IMU freshness did not expire/recover independently of images");
     executor.remove_node(camera); camera.reset();
     rclcpp::shutdown();
     std::cout << "camera adapter checks passed (synthetic provider, composed ROS)\n";

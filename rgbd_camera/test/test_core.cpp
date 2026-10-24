@@ -57,6 +57,20 @@ int main() {
   check(motion.admit(a, 1100, 1000));
   a.acquisition_ns = 1200; a.received_ns = 1300; a.sequence = 3;
   check(!motion.admit(a, 3000, 1000)); check(motion.gaps() == 1);
+  Motion future{MotionKind::Accelerometer, 1, 1000600000, 1000000000, {0, 0, 9.81}};
+  MotionGate strict;
+  rejects([&] { strict.admit(future, future.received_ns, 500000000); });
+  MotionGate estimated(5000000);
+  check(estimated.admit(future, future.received_ns, 500000000));
+  check(future.acquisition_ns == 1000600000); // acceptance never rewrites time
+  future.sequence = 2; future.acquisition_ns = future.received_ns + 5000000;
+  check(estimated.admit(future, future.received_ns, 500000000));
+  future.sequence = 3; ++future.acquisition_ns;
+  rejects([&] { estimated.admit(future, future.received_ns, 500000000); });
+  future.acquisition_ns = 1000000001;
+  rejects([&] { estimated.admit(future, future.received_ns, 500000000); });
+  rejects([] { MotionGate invalid(-1); });
+  rejects([] { MotionGate invalid(5000001); });
   check(sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   std::cout << "camera contract checks passed (synthetic)\n";
 }

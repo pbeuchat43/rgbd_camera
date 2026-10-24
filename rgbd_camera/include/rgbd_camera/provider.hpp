@@ -10,6 +10,7 @@
 namespace rgbd_camera {
 
 struct Config {
+  std::string backend = "oak";
   std::string device_id;
   double fps = 10.0;
   double pairing_tolerance_ms = 5.0;
@@ -35,7 +36,10 @@ struct Identity {
   std::string source_id, generation, clock_domain;
   std::string backend = "depthai-3.9.0";
   std::string usb_speed, imu_sensor;
+  std::string imu_axes = "sensor_native";
   int64_t unix_offset_ns = 0;
+  // Admission policy, not a measured clock-error bound. Images remain strict.
+  int64_t imu_future_tolerance_ns = 0;
 };
 
 struct Frame {
@@ -57,6 +61,7 @@ struct Motion {
 struct Products {
   std::unique_ptr<Frame> frame;
   std::vector<Motion> motion;  // at most 20 samples per poll
+  std::string diagnostic;  // bounded provider admission note, exposed in status
 };
 
 class Provider {
@@ -71,6 +76,10 @@ class Provider {
 struct DeviceDescriptor { std::string id, state, protocol; };
 std::vector<DeviceDescriptor> discover_oak();  // never opens a device
 std::unique_ptr<Provider> make_oak_provider();
+std::vector<DeviceDescriptor> discover_realsense();  // probes controls, never starts capture
+std::unique_ptr<Provider> make_realsense_provider();
+std::vector<DeviceDescriptor> discover(const std::string& backend);
+std::unique_ptr<Provider> make_provider(const std::string& backend);
 
 int64_t monotonic_ns();
 std::string read_identifier(const std::string& path);
@@ -93,9 +102,11 @@ class PairGate {
 // Deduplicates repeated IMU reports; each sensor maintains independent progress.
 class MotionGate {
  public:
+  explicit MotionGate(int64_t future_tolerance_ns = 0);
   bool admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns);
   uint64_t gaps() const { return gaps_; }
  private:
+  int64_t future_tolerance_ns_;
   std::array<int64_t, 2> last_ns_{};
   std::array<std::optional<uint64_t>, 2> last_sequence_;
   uint64_t gaps_ = 0;
