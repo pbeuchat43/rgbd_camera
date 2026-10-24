@@ -40,7 +40,7 @@ class CameraNode::Implementation {
       throw std::runtime_error("physical acquisition cannot use simulated ROS time");
     config_.backend = setting<std::string>(node, "backend", "oak", "Explicit camera family: oak or realsense");
     config_.device_id = setting<std::string>(node, "device_id", "", "Exact device ID within the selected backend, or require exactly one device");
-    config_.fps = setting<double>(node, "fps", 10.0, "RGB/depth rate request, 1..30 Hz");
+    config_.fps = setting<double>(node, "fps", 10.0, "RGB/depth rate request, 1..60 Hz; D455 above 30 uses native 60 Hz");
     config_.pairing_tolerance_ms = setting<double>(node, "pairing_tolerance_ms", 5.0,
         "Maximum accepted RGB/depth skew, 0.1..50 ms and below half a frame period");
     config_.max_frame_age_ms = setting<double>(node, "max_frame_age_ms", 500.0,

@@ -21,7 +21,7 @@ bool between(double value, double low, double high) {
 
 void Config::validate() const {
   require(backend == "oak" || backend == "realsense", "backend must be oak or realsense");
-  require(between(fps, 1, 30), "fps must be finite and within [1, 30]");
+  require(between(fps, 1, 60), "fps must be finite and within [1, 60]");
   require(between(pairing_tolerance_ms, 0.1, 50) && pairing_tolerance_ms < 500.0 / fps,
           "pairing_tolerance_ms must be in [0.1, 50] and below half a frame period");
   require(between(max_frame_age_ms, 10, 2000), "max_frame_age_ms must be in [10, 2000]");

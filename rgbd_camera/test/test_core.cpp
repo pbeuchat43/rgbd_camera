@@ -24,6 +24,14 @@ Frame frame(uint64_t sequence = 1, int64_t stamp = 1000000000) {
 int main() {
   Config config;
   config.validate();
+  Config high_rate; high_rate.fps = 60; high_rate.validate();
+  high_rate.backend = "realsense"; high_rate.validate();
+  high_rate.pairing_tolerance_ms = 15;
+  rejects([&] { high_rate.validate(); }); // greater than half the output period
+  for (double rate : {0.0, 60.001, std::numeric_limits<double>::quiet_NaN()}) {
+    Config invalid; invalid.fps = rate;
+    rejects([&] { invalid.validate(); });
+  }
   for (double tolerance : {0.0, 50.0, std::numeric_limits<double>::quiet_NaN()}) {
     Config invalid; invalid.pairing_tolerance_ms = tolerance;
     rejects([&] { invalid.validate(); });
