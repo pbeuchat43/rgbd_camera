@@ -127,7 +127,8 @@ processing, synchronization, SDK queues or device-to-host transport.
 For this dark-scene configuration, 40 Hz retained the low source age seen at
 35 Hz. The 45 Hz point delivered the requested rate at greater age and jitter;
 requests of 50 Hz and above were counterproductive. Positive cone/XYZ workload
-remains established only through the lit 35 Hz measurements.
+was established only through 35 Hz at this stage; the later lit repeats below
+extend that evidence.
 
 A subsequent 600-second dark-scene confirmation at 45 Hz delivered all 26,991
 admitted frames and batches at 45.000 Hz, with no timed-window source gaps,
@@ -137,6 +138,46 @@ frame arrival intervals were 25.18 ms p95 and 41.69 ms maximum. CPU averaged
 64.1% of one core and maximum observed RSS was 718.0 MiB. All batches were empty.
 The session's three native sequence gaps and one rejected pair occurred at the
 third admitted frame during startup, before warm-up and measurement.
+
+### OAK 40–60 Hz repeat after lighting was restored
+
+The same final candidate repeated the extension with visible cones. Every
+admitted frame and batch arrived, with zero timed-window pair rejections,
+detector overload/failure counters or invalid XYZ. There were no empty batches
+at 40, 45, 50 or 60 Hz. The 55 Hz run had 291 empty batches, with positive
+detections present again at its end; the cause of that variation was not isolated.
+
+| Requested Hz | Delivered Hz | Admitted = frames = batches | Frame age p95 ms | Result age p50 / p95 / p99 / max ms | Valid XYZ |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 40 | 40.000 | 4,792 | 49.03 | 54.68 / 55.56 / 55.92 / 57.36 | 9,453 |
+| 45 | 45.004 | 5,391 | 80.54 | 77.55 / 86.93 / 92.15 / 100.27 | 10,782 |
+| 50 | 44.425 | 5,322 | 195.54 | 188.11 / 201.94 / 205.07 / 218.21 | 10,644 |
+| 55 | 35.139 | 4,210 | 178.28 | 172.76 / 184.75 / 188.61 / 201.94 | 5,970 |
+| 60 | 30.002 | 3,593 | 200.58 | 198.61 / 207.15 / 208.25 / 215.00 | 7,186 |
+
+The timed native sequence-gap counters increased by 0 / 0 / 668 / 2,379 / 3,593
+at 40 / 45 / 50 / 55 / 60 Hz. The 40 and 45 Hz runs therefore sustained their
+requested rates with positive spatial results; higher requests did not.
+
+Lighting did not materially alter the latency boundary observed earlier.
+Acquisition to provider receipt p95 was 45.68 ms at 40 Hz and 77.27 ms at 45 Hz;
+provider receipt to external frame callback remained about 3.5 ms, and inference
+about 5.7 ms. With positive detections, downstream timings and zero overload
+counters remained comparable. The device/SDK/transport cause of the upstream
+limit remains unresolved.
+
+A subsequent 600-second lit confirmation at 45 Hz delivered every admitted
+frame and batch, with two valid cone positions in every timed batch. There were
+no timed-window source gaps, pair rejections, detector overload/failure counters,
+empty batches or invalid XYZ.
+
+| Requested Hz | Delivered Hz | Admitted = frames = batches | Frame age p95 ms | Result age p50 / p95 / p99 / max ms | Arrival interval p95 / max ms | Valid XYZ |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 45 | 45.000 | 26,991 | 85.14 | 78.10 / 91.57 / 92.41 / 116.79 | 28.99 / 59.05 | 53,982 |
+
+The session's three native sequence gaps and one rejected pair occurred before
+the timed window. This confirmation establishes positive workload at 45 Hz,
+while also showing greater source age and jitter than the 40 Hz sweep point.
 
 ## D455 startup fault isolated below ROS
 
@@ -279,21 +320,25 @@ maximum observed RSS 581.8 / 585.2 MiB at 10 / 60 Hz.
   classroom Git state and the 15 W power mode were also unchanged. No runtime
   deployment, system SDK replacement, permanent USB rule or power-mode change
   was made.
-- After verification, the task reservation and temporary USB helper ended,
+- After the initial campaign, the task reservation and temporary USB helper ended,
   original USB access permissions were restored, and no task camera processes
   remained. Service identities were checked again after cleanup.
+- The lit OAK follow-up reused the same tested binaries and passed another
+  preservation audit of the deployment, service identities, installed files,
+  profiles, classroom Git state and power mode. No implementation changed.
 
 ## What these results establish
 
 The corrected shared-memory profile supports the observed consistent 10 Hz
 external delivery on both cameras. The OAK sustained positive cone/XYZ workload
-through 35 Hz, including a ten-minute confirmation. Its dark-scene sweep kept
-low source age through 40 Hz, sustained 45 Hz with higher age, and degraded when
-requesting 50 Hz or more. The updated D455 sustained positive workload through
-30 Hz and dark-scene capture/inference/delivery through its native 60 Hz profile.
+through 45 Hz, including ten-minute confirmations at 10, 35 and 45 Hz. Its lit
+40 Hz sweep retained low source age; 45 Hz added throughput with greater age and
+jitter, while requests of 50 Hz or more degraded output. The updated D455
+sustained positive workload through 30 Hz and dark-scene
+capture/inference/delivery through its native 60 Hz profile.
 
-The scene prevented complete positive cone/XYZ verification above OAK 35 Hz and
-D455 30 Hz. Do not extrapolate the empty-detection measurements to that workload.
+The lit D455 repeat above 30 Hz remains outstanding. Do not extrapolate its
+empty-detection measurements to positive cone/XYZ workload.
 These are bounded, stationary-scene, same-host observations with the specified
 profiles and model. They do not establish indefinite delivery, hard-real-time
 deadlines, other resolutions/presets, remote transport, metric depth accuracy,
