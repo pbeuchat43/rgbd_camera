@@ -1,0 +1,22 @@
+{
+  "rgbd_camera/CMakeLists.txt": "a28b94c1f81d9b210be1fef667ccc4c0cfeabd567449d8c5a67048ae7b334d83",
+  "rgbd_camera/include/rgbd_camera/camera_node.hpp": "8fdd0cff73b274ef783f1f127a33cf64e5709e8774a4eb486412f542c27ba5b9",
+  "rgbd_camera/include/rgbd_camera/provider.hpp": "f098af4a3d724c175b1beaffae0056147c444cccb5579bc83b393fbdc585be15",
+  "rgbd_camera/launch/camera.launch.py": "3f6cbce5079d31d59e8a4adbf79fc80cf3e98540eef2a721588d27ca394d5428",
+  "rgbd_camera/package.xml": "bf00e0b609a7053b9ba7fb723f8ce7ad2e9bed1efaeb02fd2afcb00367ce180f",
+  "rgbd_camera/src/camera_node.cpp": "bc48ec0fffaf2e37cd1df304b29f6ea283b22d27bc9b05c7584301c256f51063",
+  "rgbd_camera/src/core.cpp": "512c1b312fbbcdb5e8fbc8818aa59ba0d3ded0ea1a8369a4c8a36fc244c4be31",
+  "rgbd_camera/src/discover.cpp": "ffe66b046d7395a2c18cf71d30160e009b89769000eefaf1799195e10e1bc9f8",
+  "rgbd_camera/src/oak_provider.cpp": "2ac75d57191f3fd1b9ee7f553594f4cf6ee7d0d139056aa16419c4fa288031c4",
+  "rgbd_camera/test/test_core.cpp": "6669b6565fb39bbf0bc7fc3607f0cc91d6e2359e5d490a325969234105d92b96",
+  "rgbd_camera/test/test_node.cpp": "1e0c8484fcfdf1f2b54ea657f550cbd53563d58d0ca21269da6703e4b5751eac",
+  "rgbd_camera_interfaces/CMakeLists.txt": "adcd0f9308a8b5b37292605f9fb6478a1beefbe01951dc45b3b35732ccf23f3e",
+  "rgbd_camera_interfaces/msg/CaptureReference.msg": "02d1ef4f78f8e37a2a549103b92e7eca61c86d3d677e60604f55af1b98a6f306",
+  "rgbd_camera_interfaces/msg/Frame.msg": "2b5bb23ca08796b6d267074c05c65bfcafbd1028e48c51d52b89f97097ac9ad5",
+  "rgbd_camera_interfaces/msg/Motion.msg": "1448a6e5b4a53fdeb27430424d7ea2260328f7b090d22d24b8d4be476b0005cf",
+  "rgbd_camera_interfaces/msg/Status.msg": "4b5c4bf9a712a7c3e71e0e3f5fbfbee2c6e2c3b97551d7c8d99db14b76921001",
+  "rgbd_camera_interfaces/package.xml": "4e3f045dd5c2fc7d096077cebfdd967a9c46ea8b642e3a136b524a6083bdb16c",
+  "tools/build_sdk.sh": "5832e8830fe2d78e0b8bb657f4f057cab314789518743bc33a05a9d46ab14216",
+  "tools/slow_consumer.py": "e2beff0c5b1a5ae87a06d11b1fd9725aca0ebd8abc9f7df967cac72e8d32b065",
+  "tools/verify_hardware.py": "bd0889119fccc5a12b3dc740161685020a7e0d0a363ddb930b80ae8ed3139e6f"
+}
