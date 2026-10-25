@@ -167,6 +167,9 @@ The [OAK summary](evidence/2026-10-24-oak-camera/README.md) and
 [D455 summary](evidence/2026-10-25-d455/README.md) describe the checks and
 limitations. The later [delivery and rate investigation](evidence/2026-10-25-frame-delivery-rates/README.md)
 records the corrected transport setup, updated firmware/SDK pair and rate limits.
+The subsequent [all-output campaign](evidence/2026-10-26-all-output-rates/README.md)
+measures IMU and standard images alongside the cone pipeline, including successful
+native D455 runs and the observed OAK delivery and clock-mapping failures.
 Detailed host/device identities, installed
 artifact hashes, measurements, and preservation audits remain in the local
 development archive; they are not part of this public repository.
@@ -204,9 +207,12 @@ Use `--backend realsense` with its serial for D455. The comparison defaults are
 5 ms OAK pairing tolerance, 16.6 ms D455 through 30 Hz, or 8.3 ms above 30 Hz;
 `--tolerance-ms` records an explicit alternative. `--layout standalone` puts the
 camera and detector in separate processes. Omitting `--engine` measures camera
-delivery alone. `--imu` and `--images` enable additional outputs, but the probe
-does not subscribe to those branches; use `verify_hardware.py` for their
-functional checks with actual consumers.
+delivery alone. `--imu` enables and consumes both wrapped and standard accel/gyro
+messages. `--images` enables and consumes standard RGB/depth images and both
+CameraInfo topics. The external probe receives complete image buffers but logs
+only metadata, without pixel processing. Add both flags to measure their combined
+cost alongside the detector. Use `verify_hardware.py` for broader functional
+checks such as owner conflicts and restart generations.
 
 The report compares each reader's unique captures with `Status.frames` deltas
 between matching acquisition boundaries after warm-up, rather than treating
@@ -214,7 +220,13 @@ D455 native sequence gaps as transport losses. It retains raw CSV, callback
 arrival intervals, source-age percentiles, admission/rejection/overload counts,
 native sequence gaps, positive/empty results and process resource samples.
 Native gaps include intentional D455 output selection; they are not a delivery-loss count.
-Source age in these reports
-starts at RGB acquisition; depth skew is retained separately in the frame CSV.
+Atomic-frame and detector source age starts at RGB acquisition; depth skew is
+retained separately in the frame CSV. Optional standard depth and IMU ages start
+at their own acquisition timestamps. IMU delivery comparisons use each sensor's
+independent status-counter and acquisition boundaries. Within the single test
+session, standard headers are matched against received authoritative frame or
+motion records. Standard-output missing/duplicate counts are relative to those
+records; incomplete authoritative delivery prevents a complete standard-output
+delivery claim. Image dimensions, encoding and payload sizes are checked too.
 Do not describe an empty detection batch as a dropped frame or an accepted frame
 as confirmed delivery. Warm-up, measurement and graceful shutdown are separate.
