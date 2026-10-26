@@ -23,6 +23,9 @@ declare the allowance. This policy is not a measured clock accuracy guarantee.
 See the [interface contract](docs/interface-v1.md),
 [first slice and acceptance](docs/first-slice.md), and
 [build and verification guide](docs/verification.md).
+For ordinary use, the [D455 native 60 Hz recipe](docs/running-d455-60.md) covers
+camera-only operation and the camera-plus-detector composition, including IMU,
+standard images, pairing tolerance and the local DDS setup.
 The [OAK verification summary](docs/evidence/2026-10-24-oak-camera/README.md) and
 [D455 verification summary](docs/evidence/2026-10-25-d455/README.md) cover real
 capture, optional IMU, restarts, bounded consumers and unchanged cone-detector
@@ -31,6 +34,17 @@ The subsequent [frame-delivery and rate investigation](docs/evidence/2026-10-25-
 records the corrected transport setup, updated D455 firmware/SDK pair, and
 measured throughput and source age. The configurable rate range is a request;
 consult those results for observed limits and lighting conditions.
+The [all-output campaign](docs/evidence/2026-10-26-all-output-rates/README.md)
+verified ten minutes of complete D455 delivery at native 30 and 60 Hz with IMU
+and standard images enabled. At 60 Hz it measured 59.758 Hz delivery and 38.56 ms
+p95 acquisition-to-detector-result age. This is not camera-to-screen latency.
+The [OAK timing and delivery follow-up](docs/evidence/2026-10-26-oak-hardening/README.md)
+adds a declared 5 ms IMU clock-estimate allowance and verifies ten-minute all-output
+runs at 35 and 40 Hz. It demonstrates external-reader queue loss during a callback
+stall and identifies excessive RGB/depth skew at the 60 Hz request. The current
+OAK profile did not sustain requested rates above 40 Hz; D455 remains the verified
+native 60 Hz path. The follow-up retains the unreproduced historical-fault limits
+and the D455 recipe check's additional invalid spatial results.
 External best-effort readers can drop frames; no full-rate fan-out or physical
 depth/IMU accuracy guarantee is implied.
 

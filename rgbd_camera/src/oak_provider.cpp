@@ -76,6 +76,9 @@ class OakProvider final : public Provider {
     identity.generation = read_identifier("/proc/sys/kernel/random/uuid");
     identity.clock_domain = "linux_monotonic:" + read_identifier("/proc/sys/kernel/random/boot_id");
     identity.unix_offset_ns = nanos(std::chrono::system_clock::now()) - monotonic_ns();
+    // SDK host synchronization is an estimate; fast IMU delivery can precede it.
+    // Preserve acquisition time and declare a bounded admission allowance.
+    identity.imu_future_tolerance_ns = 5000000;
     identity.usb_speed = label(device_->getUsbSpeed());
     identity.imu_sensor = device_->getConnectedIMU();
     if (config.enable_imu)

@@ -122,6 +122,12 @@ Linux platform this is monotonic time, labeled `linux_monotonic:<boot UUID>`.
 Nanoseconds remain int64, including ROS metadata. `received_ns` records host receipt
 before copying SDK image data; delivery time is not substituted for acquisition.
 Device/host time synchronization error is not bounded by this slice.
+The SDK's continuously updated estimate can put a fast IMU report slightly after
+its host receipt. OAK therefore declares a 5 ms IMU admission allowance, preserving
+the reported acquisition timestamp. This is a policy cap, not a synchronization
+accuracy claim. Larger leads, nonpositive timestamps and clock regressions remain
+terminal for OAK; image admission remains strict. See
+[Luxonis host-clock synchronization](https://docs.luxonis.com/software-v3/depthai/depthai-components/device#host-clock-syncing).
 
 D455 enables SDK `GLOBAL_TIME` on each participating sensor and waits for two
 continuous seconds of increasing timestamps within the clock checks across every
@@ -138,7 +144,7 @@ admitted without adjusting their timestamps. Larger, still increasing IMU
 estimates are individually rejected; IMU readiness expires if admissible samples
 stop, while valid RGB/depth can continue. Regressions and domain changes remain
 terminal. Each `Motion.future_tolerance_ns` declares this admission policy
-(5000000 for D455, zero for OAK); it is not a measured synchronization error bound.
+(5000000 for both current backends); it is not a measured synchronization error bound.
 Motion consumers must allow acquisition ≤ receipt + future_tolerance_ns, preserve
 the original timestamp, and treat a permitted small negative age as fresh.
 A cumulative `realsense_imu_future_timestamps_admitted` note counts these samples

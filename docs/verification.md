@@ -85,6 +85,9 @@ wrap. It establishes arithmetic behavior, not physical calibration accuracy.
 
 ## Running explicitly
 
+The [D455 native 60 Hz recipe](running-d455-60.md) gives ordinary camera and
+camera-plus-detector commands with the verified optional-output configuration.
+
 ```bash
 ros2 run rgbd_camera camera_discover
 ros2 run rgbd_camera camera_node --ros-args -r __node:=camera \
@@ -230,3 +233,13 @@ records; incomplete authoritative delivery prevents a complete standard-output
 delivery claim. Image dimensions, encoding and payload sizes are checked too.
 Do not describe an empty detection batch as a dropped frame or an accepted frame
 as confirmed delivery. Warm-up, measurement and graceful shutdown are separate.
+
+For diagnosis, camera CSV records include the latest rejection/error detail,
+signed skew and raw pair receipt time. Rejected-pair status detail gives both
+image ages; terminal IMU clock errors include the offending timestamps and
+configured tolerance. Detector CSV records retain input/processed acquisition
+progress. `observer.csv` records synchronous file-flush duration. These samples
+help locate stalls but are not a complete trace of every queue operation.
+`--reader-depth N` changes only the external observer's image/batch subscription
+queues (1 by default, bounded to 16); production camera/detector queues are
+unchanged. Retain that setting when comparing delivery or latency results.

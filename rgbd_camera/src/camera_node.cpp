@@ -195,6 +195,10 @@ class CameraNode::Implementation {
             status_.last_pair_received_ns = products.frame->received_ns;
             status_.last_skew_ns = products.frame->depth_acquisition_ns - products.frame->acquisition_ns;
             status_.detail = reason.value_or(products.diagnostic.substr(0,1024));
+            if (reason) {
+              status_.detail += " rgb_age_ns=" + std::to_string(now - products.frame->acquisition_ns) +
+                  " depth_age_ns=" + std::to_string(now - products.frame->depth_acquisition_ns);
+            }
             if (reason) { ++status_.rejected_pairs; if (status_.frames == 0) status_.state = "unavailable"; }
             else { ++status_.frames; status_.last_acquisition_ns = products.frame->acquisition_ns; status_.state = "streaming"; }
           }

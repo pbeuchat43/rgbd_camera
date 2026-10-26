@@ -102,9 +102,17 @@ MotionGate::MotionGate(int64_t future_tolerance_ns) : future_tolerance_ns_(futur
 bool MotionGate::admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns) {
   const auto index = sample.kind == MotionKind::Accelerometer ? 0 : 1;
   for (auto value : sample.xyz) require(std::isfinite(value), "nonfinite IMU sample");
-  require(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
-          sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
-          sample.received_ns <= now_ns, "invalid IMU clock mapping");
+  if (!(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
+        sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
+        sample.received_ns <= now_ns)) {
+    std::ostringstream detail;
+    detail << "invalid IMU clock mapping: sensor=" << (index == 0 ? "accel" : "gyro")
+           << " sequence=" << sample.sequence << " acquisition_ns=" << sample.acquisition_ns
+           << " received_ns=" << sample.received_ns << " now_ns=" << now_ns
+           << " future_tolerance_ns=" << future_tolerance_ns_
+           << " previous_acquisition_ns=" << last_ns_[index];
+    throw std::runtime_error(detail.str());
+  }
   require(sample.acquisition_ns >= last_ns_[index], "IMU acquisition clock regressed");
   if (sample.acquisition_ns == last_ns_[index]) return false;
   if (last_sequence_[index] && sample.sequence > *last_sequence_[index])

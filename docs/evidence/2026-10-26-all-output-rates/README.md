@@ -1,5 +1,9 @@
 # Cone-pipeline rates with IMU and standard images — 2026-10-26
 
+The subsequent [OAK timing and delivery follow-up](../2026-10-26-oak-hardening/README.md)
+records the clock-policy change, fresh long runs and targeted rejection/reader
+diagnostics. The measurements and policies below describe this earlier campaign.
+
 This campaign measures camera acquisition, GPU cone detection and spatial
 estimation with all optional camera outputs enabled and consumed. It follows the
 [earlier frame-delivery and rate investigation](../2026-10-25-frame-delivery-rates/README.md),

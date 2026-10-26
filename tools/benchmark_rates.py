@@ -31,6 +31,7 @@ parser.add_argument('--tolerance-ms',type=float,help='Explicit pairing limit; de
 parser.add_argument('--layout',choices=['standalone','composed'],default='standalone')
 parser.add_argument('--imu',action='store_true')
 parser.add_argument('--images',action='store_true')
+parser.add_argument('--reader-depth',type=int,default=1,choices=range(1,17),help='External image/batch reader queue depth; production queues are unchanged')
 args=parser.parse_args()
 if args.tolerance_ms is None:args.tolerance_ms=(8.3 if args.fps>30 else 16.6) if args.backend=='realsense' else 5.0
 if not 5<=args.seconds<=3600:parser.error('--seconds must be within [5, 3600]')
@@ -187,7 +188,7 @@ metadata=dict(options={k:str(v) if isinstance(v,Path) else v for k,v in vars(arg
     environment={k:os.environ.get(k) for k in ['ROS_DOMAIN_ID','RMW_IMPLEMENTATION','FASTRTPS_DEFAULT_PROFILES_FILE','FASTDDS_DEFAULT_PROFILES_FILE']})
 try:
     launch('native-reader',[args.probe,'--ros-args','-p','output:='+str(directory/'native'),
-        '-p','images:='+str(args.images).lower(),'-p','imu:='+str(args.imu).lower()])
+        '-p','images:='+str(args.images).lower(),'-p','imu:='+str(args.imu).lower(),'-p','depth:='+str(args.reader_depth)])
     camera_parameters=[('backend',args.backend),('device_id',args.device_id),
         ('fps',args.fps),('pairing_tolerance_ms',args.tolerance_ms),('enable_imu',args.imu),('publish_images',args.images)]
     detector_parameters=[('engine_path',str(args.engine.resolve()))] if args.engine else []

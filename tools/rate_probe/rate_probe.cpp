@@ -12,6 +12,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <filesystem>
 #include <map>
 #include <vector>
@@ -31,6 +32,7 @@ class Probe : public rclcpp::Node {
   Probe() : Node("rate_probe") {
     const auto directory = declare_parameter<std::string>("output", "/tmp/rgbd-rate-probe");
     const auto depth = declare_parameter<int>("depth", 1);
+    if (depth < 1 || depth > 16) throw std::runtime_error("probe depth must be within [1, 16]");
     const auto images = declare_parameter<bool>("images", false);
     const auto imu = declare_parameter<bool>("imu", false);
     if (std::filesystem::exists(directory)) throw std::runtime_error("probe output directory already exists");
@@ -40,8 +42,11 @@ class Probe : public rclcpp::Node {
     if (!frames_ || !batches_ || !camera_ || !detector_) throw std::runtime_error("cannot open probe output files");
     frames_ << "arrival_ns,sequence,acquisition_ns,depth_acquisition_ns,received_ns,generation,bytes,skew_ns,rgb_stamp_ns,depth_stamp_ns,width,height,rgb_bytes,depth_bytes\n";
     batches_ << "arrival_ns,sequence,acquisition_ns,started_ns,completed_ns,source_age_ns,preprocess_ns,inference_ns,postprocess_ns,valid,invalid,generation\n";
-    camera_ << "arrival_ns,observed_ns,frames,pairs,rejected,gaps,last_acquisition_ns,state,imu_state,last_accel_ns,last_gyro_ns,accel_samples,gyro_samples,imu_sequence_gaps\n";
-    detector_ << "arrival_ns,observed_ns,received,processed,rejected,replaced,stale,superseded,failures,state\n";
+    camera_ << "arrival_ns,observed_ns,frames,pairs,rejected,gaps,last_acquisition_ns,state,imu_state,last_accel_ns,last_gyro_ns,accel_samples,gyro_samples,imu_sequence_gaps,last_skew_ns,last_pair_received_ns,detail\n";
+    detector_ << "arrival_ns,observed_ns,received,processed,rejected,replaced,stale,superseded,failures,state,last_input_acquisition_ns,last_processed_acquisition_ns\n";
+    observer_.open(directory+"/observer.csv");
+    if (!observer_) throw std::runtime_error("cannot open observer timing file");
+    observer_ << "started_ns,completed_ns,flush_duration_ns,frames,batches\n";
     const auto qos = rclcpp::SensorDataQoS().keep_last(depth);
     frame_sub_ = create_subscription<Frame>("/sweep/camera/frames", qos, [this](Frame::ConstSharedPtr f) {
       const auto t = now_ns(); ++frame_count_;
@@ -62,12 +67,14 @@ class Probe : public rclcpp::Node {
       camera_ << now_ns() << ',' << s->observed_ns << ',' << s->frames << ',' << s->pairs_received << ','
         << s->rejected_pairs << ',' << s->sequence_gaps << ',' << s->last_acquisition_ns << ',' << s->state << ','
         << s->imu_state << ',' << s->last_accel_ns << ',' << s->last_gyro_ns << ','
-        << s->accel_samples << ',' << s->gyro_samples << ',' << s->imu_sequence_gaps << '\n';
+        << s->accel_samples << ',' << s->gyro_samples << ',' << s->imu_sequence_gaps << ','
+        << s->last_skew_ns << ',' << s->last_pair_received_ns << ',' << std::quoted(s->detail, '"', '"') << '\n';
       if (s->state == "error") std::cerr << "CAMERA_ERROR " << s->detail << std::endl;
     });
     detector_sub_ = create_subscription<DetectorStatus>("/sweep/detector/status", qos, [this](DetectorStatus::ConstSharedPtr s) {
       detector_ << now_ns() << ',' << s->observed_ns << ',' << s->received << ',' << s->processed << ',' << s->rejected << ','
-        << s->replaced << ',' << s->stale << ',' << s->superseded << ',' << s->failures << ',' << s->state << '\n';
+        << s->replaced << ',' << s->stale << ',' << s->superseded << ',' << s->failures << ',' << s->state << ','
+        << s->last_input_acquisition_ns << ',' << s->last_processed_acquisition_ns << '\n';
       if (s->state == "error") std::cerr << "DETECTOR_ERROR " << s->detail << std::endl;
     });
     const auto open_extra = [&](const std::string& name, const std::string& header) {
@@ -112,14 +119,17 @@ class Probe : public rclcpp::Node {
       }
     }
     timer_ = create_wall_timer(std::chrono::seconds(1), [this] {
+      const auto started = now_ns();
       frames_.flush(); batches_.flush(); camera_.flush(); detector_.flush();
       for (auto& entry : extra_files_) entry.second.flush();
+      const auto completed = now_ns();
+      observer_ << started << ',' << completed << ',' << completed-started << ',' << frame_count_ << ',' << batch_count_ << '\n';
       std::cout << "frames=" << frame_count_ << " batches=" << batch_count_ << std::endl;
     });
   }
  private:
   uint64_t frame_count_ = 0, batch_count_ = 0;
-  std::ofstream frames_, batches_, camera_, detector_;
+  std::ofstream frames_, batches_, camera_, detector_, observer_;
   std::map<std::string, std::ofstream> extra_files_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> image_subs_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
