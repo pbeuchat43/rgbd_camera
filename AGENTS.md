@@ -19,7 +19,10 @@ Preserve its ownership, freshness, geometry and bounded-processing contracts.
   the shared device. Ordinary shutdown releases the sole session.
 - Follow the user's Solo/workflow preferences. No automatic approval ceremonies.
 - New material is MIT, copyright Paul N. Beuchat. Preserve third-party notices.
-- `main` is the verified baseline; `dev` is development. Archive intermediate
-  history before consolidating a verified milestone; preserve existing baselines.
+- Work on feature or maintenance branches from `dev`. When the user declares
+  the development push finished, squash-merge into `dev`; later merge `dev`
+  into `main` and synchronize back to `dev`. Preserve existing baselines and
+  archive intermediate history before consolidation. Do not advance either
+  integration branch merely because one task's checks have passed.
 
 Verification commands and evidence limits are in `docs/verification.md`.

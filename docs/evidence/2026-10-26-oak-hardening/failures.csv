@@ -1,0 +1,4 @@
+run,backend,requested_hz,requested_seconds,reader_depth,intentional_reader_pause,detector_enabled,error,timed_measurement_started,observed_seconds,last_frames,last_pairs,last_rejected,last_gaps,last_detail
+diagnostic-oak-60,oak,60.0,30.0,1,False,True,readiness timed out,False,59.799643562,1,1503,1502,1799,pairing_skew rgb_age_ns=206843704 depth_age_ns=290152858
+recipe-realsense-60,realsense,60.0,30.0,1,False,True,"Unable to find container node '/perception_container'
+",False,2.00005244,0,0,0,0,"realsense_clock_starting stable_ms=0 stream0{samples=57,domain=2,invalid=53,age_us=-106312} stream1{samples=20,domain=2,invalid=2,age_us=-57459} stream2{samples=128,domain=2,invalid=96,age_us=-122063} stream3{samples=240,domain=2,invalid=191,age_us=-122310}"

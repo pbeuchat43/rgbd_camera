@@ -35,6 +35,7 @@ class RealsenseProvider final : public Provider {
   ~RealsenseProvider() override { try { stop(); } catch (...) {} }
   Identity start(const Config& config) override {
     require(!context_, "provider already started"); config.validate(); config_ = config;
+    native_fps_ = config.fps > 30 ? 60 : 30;
     {
       std::lock_guard<std::mutex> guard(mutex_);
       error_.clear(); last_acquired_.fill(0); future_motion_time_ = rejected_motion_time_ = 0;
@@ -58,8 +59,8 @@ class RealsenseProvider final : public Provider {
     require(candidates.size() == 1, "select exactly one RealSense device; use device_id for explicit selection");
     device_ = candidates.front();
     require(info(device_,RS2_CAMERA_INFO_PRODUCT_ID) == "0B5C", "this RealSense profile requires D455 (PID 0B5C)");
-    require(info(device_,RS2_CAMERA_INFO_FIRMWARE_VERSION) == "5.16.0.1",
-            "this D455 profile requires firmware 5.16.0.1 with librealsense 2.56.3; firmware changes are explicit");
+    require(info(device_,RS2_CAMERA_INFO_FIRMWARE_VERSION) == "5.17.0.10",
+            "this D455 profile requires firmware 5.17.0.10 with librealsense 2.56.5; firmware changes are explicit");
     const auto serial = info(device_,RS2_CAMERA_INFO_SERIAL_NUMBER);
     lock_.acquire("realsense:" + serial);
     const auto sensors = device_.query_sensors();
@@ -68,7 +69,7 @@ class RealsenseProvider final : public Provider {
       for (auto profile : sensors[index].get_stream_profiles()) {
         const auto stream = profile.stream_type();
         if (auto video = profile.as<rs2::video_stream_profile>()) {
-          if (video.width() == 640 && video.height() == 480 && profile.fps() == 30) {
+          if (video.width() == 640 && video.height() == 480 && profile.fps() == native_fps_) {
             if (stream == RS2_STREAM_COLOR && profile.format() == RS2_FORMAT_BGR8) selected[0] = Selection{index,profile};
             if (stream == RS2_STREAM_DEPTH && profile.format() == RS2_FORMAT_Z16) selected[1] = Selection{index,profile};
           }
@@ -79,7 +80,7 @@ class RealsenseProvider final : public Provider {
         }
       }
     }
-    require(selected[0] && selected[1], "D455 requires supported 640x480 BGR8/Z16 streams at 30 Hz");
+    require(selected[0] && selected[1], "D455 requires matching supported 640x480 BGR8/Z16 native-rate profiles");
     require(!config.enable_imu || (selected[2] && selected[3]), "requested RealSense accel/gyro streams unavailable");
     RealsenseCalibration calibration;
     const auto color_profile = selected[0]->profile.as<rs2::video_stream_profile>();
@@ -87,12 +88,14 @@ class RealsenseProvider final : public Provider {
     calibration.color = color_profile.get_intrinsics(); calibration.depth = depth_profile.get_intrinsics();
     calibration.depth_to_color = depth_profile.get_extrinsics_to(color_profile);
     calibration.depth_unit_m = sensors[selected[1]->sensor].as<rs2::depth_sensor>().get_depth_scale();
-    calibration.profile_identity = serial + ":" + info(device_,RS2_CAMERA_INFO_FIRMWARE_VERSION) + ":640x480@30:bgr8:z16";
+    calibration.profile_identity = serial + ":" + info(device_,RS2_CAMERA_INFO_FIRMWARE_VERSION) +
+      ":640x480@" + std::to_string(native_fps_) + ":bgr8:z16";
     geometry_ = std::make_unique<RealsenseGeometry>(calibration);
     identity_.source_id = "realsense:" + serial;
     identity_.generation = read_identifier("/proc/sys/kernel/random/uuid");
     identity_.clock_domain = "linux_monotonic:" + read_identifier("/proc/sys/kernel/random/boot_id");
-    identity_.backend = std::string("librealsense-") + RS2_API_VERSION_STR + ":D455:firmware-5.16.0.1:exposure_midpoint_global_time";
+    identity_.backend = std::string("librealsense-") + RS2_API_VERSION_STR + ":D455:firmware-5.17.0.10:native_" +
+      std::to_string(native_fps_) + "hz:exposure_midpoint_global_time";
     identity_.usb_speed = info(device_,RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR);
     identity_.unix_offset_ns = epoch_ns()-monotonic_ns();
     identity_.imu_future_tolerance_ns = 5000000;
@@ -144,10 +147,11 @@ class RealsenseProvider final : public Provider {
       products.motion.assign(motion_.begin(),motion_.end()); motion_.clear();
       while (!colors_.empty() && !depths_.empty()) {
         const auto skew = depths_.front().acquired-colors_.front().acquired;
-        // Select the nearest 30 Hz pair without reusing a frame. Expose pairs
+        // Select the nearest native-rate pair without reusing a frame. Expose pairs
         // above the user tolerance to PairGate, so rejection remains observable.
-        if (skew > 16666667) { colors_.pop_front(); continue; }
-        if (skew < -16666667) { depths_.pop_front(); continue; }
+        const int64_t half_period_ns = (500000000 + native_fps_ - 1) / native_fps_;
+        if (skew > half_period_ns) { colors_.pop_front(); continue; }
+        if (skew < -half_period_ns) { depths_.pop_front(); continue; }
         color = std::move(colors_.front()); colors_.pop_front();
         depth = std::move(depths_.front()); depths_.pop_front();
         if (color->acquired < next_output_ns_) { color.reset(); depth.reset(); continue; }
@@ -262,6 +266,7 @@ class RealsenseProvider final : public Provider {
     }
   }
   Config config_;
+  int native_fps_ = 30;
   Identity identity_;
   DeviceLock lock_;
   std::unique_ptr<rs2::context> context_;

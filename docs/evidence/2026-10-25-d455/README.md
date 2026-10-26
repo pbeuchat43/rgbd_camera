@@ -17,9 +17,12 @@ was part of this milestone.
   default checked separately. Default SDK auto exposure and motion correction.
 - Optional accelerometer at 100 Hz and gyroscope at 200 Hz; independent samples,
   SDK depth-oriented axes at the IMU origin, no fusion or interpolation.
-- Fast DDS 2.14.6, localhost discovery, isolated ROS domain, and the checked-in
-  [same-host shared-memory profile](../../../tools/fastdds_local_frames.xml).
-  This profile changes transport settings per process, not system configuration.
+- Fast DDS 2.14.6, localhost discovery and an isolated ROS domain. **Correction
+  from the subsequent delivery investigation:** the run environment set
+  `FASTDDS_DEFAULT_PROFILES_FILE`; version 2.14.6 recognizes
+  `FASTRTPS_DEFAULT_PROFILES_FILE`. Consequently the intended
+  [shared-memory profile](../../../tools/fastdds_local_frames.xml) was ignored.
+  The measurements below describe the default transport, not that profile.
 
 The [source digest manifest](source-sha256.json) identifies the verified provider,
 interfaces, tests and tools. Private records also identify installed binaries,

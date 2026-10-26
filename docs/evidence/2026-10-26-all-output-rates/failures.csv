@@ -1,0 +1,4 @@
+backend,attempt,requested_hz,requested_measurement_seconds,timed_measurement_started,error,observed_status_seconds,observed_timed_seconds,last_camera_state,last_imu_state,last_admitted_frames,received_frames,received_batches,last_received_pairs,last_rejected_pairs,last_video_native_gaps,last_accel_samples,last_gyro_samples,last_imu_native_gaps
+oak,confirmation,35.0,600.0,True,invalid IMU clock mapping,507.599637138,499.852924235,error,unavailable,17607,17607,17606,17607,0,1,49747,49747,0
+oak,retry,60.0,120.0,False,readiness timed out,59.799564538,,unavailable,streaming,2,2,2,1512,1510,1806,5489,5489,0
+oak,sweep,60.0,120.0,False,readiness timed out,59.799454433,,unavailable,streaming,1,1,1,1515,1514,1805,5490,5490,0

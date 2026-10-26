@@ -6,8 +6,8 @@ prefix=${1:?usage: build_realsense_sdk.sh ABSOLUTE_EMPTY_PREFIX}
 scratch="${prefix}-build"
 [[ ! -e "$scratch" ]] || { echo 'build directory already exists' >&2; exit 2; }
 mkdir -p "$scratch"
-git clone --depth 1 --branch v2.56.3 https://github.com/realsenseai/librealsense.git "$scratch/source"
-test "$(git -C "$scratch/source" rev-parse HEAD)" = 05d6eb7ec8efeed4d69b4025d9ff149e7132acd5
+git clone --depth 1 --branch v2.56.5 https://github.com/realsenseai/librealsense.git "$scratch/source"
+test "$(git -C "$scratch/source" rev-parse HEAD)" = 38a41441971387197193ad3aeae3cefe6a11f2cb
 cmake -S "$scratch/source" -B "$scratch/build" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" -DFORCE_RSUSB_BACKEND=ON \
   -DBUILD_WITH_CUDA=OFF -DBUILD_WITH_DDS=OFF -DBUILD_EXAMPLES=OFF \

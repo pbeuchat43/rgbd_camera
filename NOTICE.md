@@ -20,7 +20,7 @@ attribution; the package license alone does not resolve model licensing.
 ## RealSense SDK
 
 The optional RealSense provider links to the separately installed official
-librealsense 2.56.3 SDK, commit `05d6eb7ec8efeed4d69b4025d9ff149e7132acd5`,
+librealsense 2.56.5 SDK, commit `38a41441971387197193ad3aeae3cefe6a11f2cb`,
 under its Apache License 2.0. SDK files and firmware are not bundled here.
 Projection and timestamp semantics were checked against that pinned upstream
 source. Preserve the SDK's own license and notices in any redistribution.

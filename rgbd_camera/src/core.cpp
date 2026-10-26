@@ -21,7 +21,7 @@ bool between(double value, double low, double high) {
 
 void Config::validate() const {
   require(backend == "oak" || backend == "realsense", "backend must be oak or realsense");
-  require(between(fps, 1, 30), "fps must be finite and within [1, 30]");
+  require(between(fps, 1, 60), "fps must be finite and within [1, 60]");
   require(between(pairing_tolerance_ms, 0.1, 50) && pairing_tolerance_ms < 500.0 / fps,
           "pairing_tolerance_ms must be in [0.1, 50] and below half a frame period");
   require(between(max_frame_age_ms, 10, 2000), "max_frame_age_ms must be in [10, 2000]");
@@ -102,9 +102,17 @@ MotionGate::MotionGate(int64_t future_tolerance_ns) : future_tolerance_ns_(futur
 bool MotionGate::admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns) {
   const auto index = sample.kind == MotionKind::Accelerometer ? 0 : 1;
   for (auto value : sample.xyz) require(std::isfinite(value), "nonfinite IMU sample");
-  require(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
-          sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
-          sample.received_ns <= now_ns, "invalid IMU clock mapping");
+  if (!(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
+        sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
+        sample.received_ns <= now_ns)) {
+    std::ostringstream detail;
+    detail << "invalid IMU clock mapping: sensor=" << (index == 0 ? "accel" : "gyro")
+           << " sequence=" << sample.sequence << " acquisition_ns=" << sample.acquisition_ns
+           << " received_ns=" << sample.received_ns << " now_ns=" << now_ns
+           << " future_tolerance_ns=" << future_tolerance_ns_
+           << " previous_acquisition_ns=" << last_ns_[index];
+    throw std::runtime_error(detail.str());
+  }
   require(sample.acquisition_ns >= last_ns_[index], "IMU acquisition clock regressed");
   if (sample.acquisition_ns == last_ns_[index]) return false;
   if (last_sequence_[index] && sample.sequence > *last_sequence_[index])

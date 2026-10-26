@@ -18,9 +18,10 @@ if one might later prove incompatible. No fallback device is silently selected.
 
 The OAK backend requires RVC2, CAM_A/B/C and a calibrated B/C stereo pair. The
 resolved device, USB link and integrated IMU model are reported in status.
-The RealSense backend requires D455 (product ID `0B5C`), firmware `5.16.0.1`
-with librealsense `2.56.3`, and supported 640×480
-BGR8/Z16 profiles at 30 Hz. An unavailable backend fails explicitly.
+The RealSense backend requires D455 (product ID `0B5C`), firmware `5.17.0.10`
+with librealsense `2.56.5`, and matching supported 640×480
+BGR8/Z16 profiles at 30 Hz (60 Hz for output requests above 30 Hz).
+An unavailable backend or native-rate profile fails explicitly.
 SDK exclusivity plus a per-user advisory lock prevent concurrent owners. Other
 software must also respect SDK exclusivity; the lock is not a cross-user security
 boundary. Shutdown releases the pipeline/device and lock. There is no automatic
@@ -35,7 +36,7 @@ may subscribe/unsubscribe; they cannot modify exposure, geometry or capture rate
 | --- | --- | --- |
 | `backend` | `oak` | Explicit family: `oak` or `realsense`; must be enabled in this build |
 | `device_id` | empty | Exact SDK identity, or exactly one available device |
-| `fps` | 10.0 | Finite 1–30 Hz request; hardware rate is measured separately |
+| `fps` | 10.0 | Finite 1–60 Hz request; hardware rate is measured separately |
 | `pairing_tolerance_ms` | 5.0 | 0.1–50 ms, strictly less than half a frame period |
 | `max_frame_age_ms` | 500.0 | 10–2000 ms; maximum source age at admission |
 | `startup_timeout_s` | 30.0 | 5–120 s first raw-pair deadline; synchronous SDK open cannot be preempted |
@@ -76,11 +77,16 @@ Persistent rejection makes the accepted stream unavailable without closing the
 camera. Device/pipeline loss, invalid geometry, or clock/sequence regression are
 terminal. A process running is not proof of valid frame delivery.
 
-D455 uses independent 640×480 streams at 30 Hz. It pairs the oldest retained
-frames within half a native frame period without reusing frames, then admits
+D455 uses independent 640×480 streams at 30 Hz for requests through 30 Hz, or
+60 Hz for higher requests. It pairs the oldest retained frames within half a
+native frame period without reusing frames, then admits
 pairs at the requested output `fps`. Native capture and publication rates are
 distinct. Actual exposure skew is retained and passes the same host gate; the
 default 5 ms tolerance is unchanged. Unsynchronized streams may be rejected.
+Selecting rates that do not divide the native rate, such as 20/25 Hz from 30 Hz
+or 35 Hz from 60 Hz, produces nonuniform native-frame intervals; it does not
+synthesize uniformly spaced exposures. The selected native rate is
+included in backend metadata and the calibration fingerprint.
 RGB is rectified into a virtual camera using the selected color intrinsics.
 Each calibrated depth point is transformed into that RGB coordinate system,
 projected to the nearest pixel, and stored as RGB optical Z in millimetres.
@@ -116,6 +122,12 @@ Linux platform this is monotonic time, labeled `linux_monotonic:<boot UUID>`.
 Nanoseconds remain int64, including ROS metadata. `received_ns` records host receipt
 before copying SDK image data; delivery time is not substituted for acquisition.
 Device/host time synchronization error is not bounded by this slice.
+The SDK's continuously updated estimate can put a fast IMU report slightly after
+its host receipt. OAK therefore declares a 5 ms IMU admission allowance, preserving
+the reported acquisition timestamp. This is a policy cap, not a synchronization
+accuracy claim. Larger leads, nonpositive timestamps and clock regressions remain
+terminal for OAK; image admission remains strict. See
+[Luxonis host-clock synchronization](https://docs.luxonis.com/software-v3/depthai/depthai-components/device#host-clock-syncing).
 
 D455 enables SDK `GLOBAL_TIME` on each participating sensor and waits for two
 continuous seconds of increasing timestamps within the clock checks across every
@@ -132,7 +144,7 @@ admitted without adjusting their timestamps. Larger, still increasing IMU
 estimates are individually rejected; IMU readiness expires if admissible samples
 stop, while valid RGB/depth can continue. Regressions and domain changes remain
 terminal. Each `Motion.future_tolerance_ns` declares this admission policy
-(5000000 for D455, zero for OAK); it is not a measured synchronization error bound.
+(5000000 for both current backends); it is not a measured synchronization error bound.
 Motion consumers must allow acquisition ≤ receipt + future_tolerance_ns, preserve
 the original timestamp, and treat a permitted small negative age as fresh.
 A cumulative `realsense_imu_future_timestamps_admitted` note counts these samples
@@ -155,6 +167,10 @@ raw pair progress, accepted acquisition progress, rejected pairs, sequence gaps,
 and independent IMU progress. Loss of status itself must expire readiness.
 Image sequence gaps include SDK/output queue drops; they are not an exact count
 of every dropped frame at every transport boundary. IMU gaps are similarly scoped.
+`Status.frames` counts admitted pairs before the publish call; it does not confirm
+receipt by any consumer. Measure external delivery by comparing received capture
+identities against admissions over the same acquisition interval. D455's deliberate
+native-rate selection must not be counted as external transport loss.
 
 ## Optional integrated IMU
 
@@ -195,7 +211,7 @@ four batches of at most ten packets (at most twenty individual sensor reports
 per poll); ROS IMU queues retain four messages. No work list grows with runtime.
 D455 retains at most two frames per image stream and twenty motion samples;
 oldest entries are replaced when full. Its SDK queue request is four video frames
-or sixteen motion frames per sensor. Intentional 30 Hz to output-rate admission
+or sixteen motion frames per sensor. Intentional native-rate to output-rate admission
 also produces sequence gaps, so D455 gaps do not alone indicate transport loss.
 
 Composition is enabled explicitly with intra-process communication. SDK-to-owned
