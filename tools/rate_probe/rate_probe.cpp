@@ -4,7 +4,7 @@
 #include <rgbd_camera_interfaces/msg/frame.hpp>
 #include <rgbd_camera_interfaces/msg/status.hpp>
 #include <rgbd_camera_interfaces/msg/motion.hpp>
-#include <rgbd_object_detector_interfaces/msg/batch.hpp>
+#include <rgbd_object_detector_interfaces/msg/capture_detections.hpp>
 #include <rgbd_object_detector_interfaces/msg/status.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -19,7 +19,7 @@
 
 using Frame = rgbd_camera_interfaces::msg::Frame;
 using CameraStatus = rgbd_camera_interfaces::msg::Status;
-using Batch = rgbd_object_detector_interfaces::msg::Batch;
+using CaptureDetections = rgbd_object_detector_interfaces::msg::CaptureDetections;
 using DetectorStatus = rgbd_object_detector_interfaces::msg::Status;
 using Motion = rgbd_camera_interfaces::msg::Motion;
 int64_t now_ns() { return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -37,16 +37,16 @@ class Probe : public rclcpp::Node {
     const auto imu = declare_parameter<bool>("imu", false);
     if (std::filesystem::exists(directory)) throw std::runtime_error("probe output directory already exists");
     std::filesystem::create_directories(directory);
-    frames_.open(directory+"/frames.csv"); batches_.open(directory+"/batches.csv");
+    frames_.open(directory+"/frames.csv"); capture_detections_.open(directory+"/capture_detections.csv");
     camera_.open(directory+"/camera.csv"); detector_.open(directory+"/detector.csv");
-    if (!frames_ || !batches_ || !camera_ || !detector_) throw std::runtime_error("cannot open probe output files");
+    if (!frames_ || !capture_detections_ || !camera_ || !detector_) throw std::runtime_error("cannot open probe output files");
     frames_ << "arrival_ns,sequence,acquisition_ns,depth_acquisition_ns,received_ns,generation,bytes,skew_ns,rgb_stamp_ns,depth_stamp_ns,width,height,rgb_bytes,depth_bytes\n";
-    batches_ << "arrival_ns,sequence,acquisition_ns,started_ns,completed_ns,source_age_ns,preprocess_ns,inference_ns,postprocess_ns,valid,invalid,generation\n";
+    capture_detections_ << "arrival_ns,sequence,acquisition_ns,started_ns,completed_ns,source_age_ns,preprocess_ns,inference_ns,postprocess_ns,valid,invalid,generation\n";
     camera_ << "arrival_ns,observed_ns,frames,pairs,rejected,gaps,last_acquisition_ns,state,imu_state,last_accel_ns,last_gyro_ns,accel_samples,gyro_samples,imu_sequence_gaps,last_skew_ns,last_pair_received_ns,detail\n";
     detector_ << "arrival_ns,observed_ns,received,processed,rejected,replaced,stale,superseded,failures,state,last_input_acquisition_ns,last_processed_acquisition_ns\n";
     observer_.open(directory+"/observer.csv");
     if (!observer_) throw std::runtime_error("cannot open observer timing file");
-    observer_ << "started_ns,completed_ns,flush_duration_ns,frames,batches\n";
+    observer_ << "started_ns,completed_ns,flush_duration_ns,frames,capture_detections\n";
     const auto qos = rclcpp::SensorDataQoS().keep_last(depth);
     frame_sub_ = create_subscription<Frame>("/sweep/camera/frames", qos, [this](Frame::ConstSharedPtr f) {
       const auto t = now_ns(); ++frame_count_;
@@ -56,10 +56,10 @@ class Probe : public rclcpp::Node {
         << stamp_ns(f->rgb.header) << ',' << stamp_ns(f->depth.header) << ','
         << f->rgb.width << ',' << f->rgb.height << ',' << f->rgb.data.size() << ',' << f->depth.data.size() << '\n';
     });
-    batch_sub_ = create_subscription<Batch>("/sweep/detector/batches", qos, [this](Batch::ConstSharedPtr b) {
-      const auto t = now_ns(); ++batch_count_; size_t valid = 0;
+    capture_detections_sub_ = create_subscription<CaptureDetections>("/sweep/detector/capture_detections", qos, [this](CaptureDetections::ConstSharedPtr b) {
+      const auto t = now_ns(); ++capture_detections_count_; size_t valid = 0;
       for (const auto& p : b->spatial) valid += p.valid;
-      batches_ << t << ',' << b->capture.sequence << ',' << b->capture.acquisition_ns << ',' << b->started_ns << ','
+      capture_detections_ << t << ',' << b->capture.sequence << ',' << b->capture.acquisition_ns << ',' << b->started_ns << ','
         << b->completed_ns << ',' << b->source_age_ns << ',' << b->preprocess_ns << ',' << b->inference_ns << ','
         << b->postprocess_ns << ',' << valid << ',' << b->spatial.size()-valid << ',' << b->capture.generation << '\n';
     });
@@ -120,23 +120,23 @@ class Probe : public rclcpp::Node {
     }
     timer_ = create_wall_timer(std::chrono::seconds(1), [this] {
       const auto started = now_ns();
-      frames_.flush(); batches_.flush(); camera_.flush(); detector_.flush();
+      frames_.flush(); capture_detections_.flush(); camera_.flush(); detector_.flush();
       for (auto& entry : extra_files_) entry.second.flush();
       const auto completed = now_ns();
-      observer_ << started << ',' << completed << ',' << completed-started << ',' << frame_count_ << ',' << batch_count_ << '\n';
-      std::cout << "frames=" << frame_count_ << " batches=" << batch_count_ << std::endl;
+      observer_ << started << ',' << completed << ',' << completed-started << ',' << frame_count_ << ',' << capture_detections_count_ << '\n';
+      std::cout << "frames=" << frame_count_ << " capture_detections=" << capture_detections_count_ << std::endl;
     });
   }
  private:
-  uint64_t frame_count_ = 0, batch_count_ = 0;
-  std::ofstream frames_, batches_, camera_, detector_, observer_;
+  uint64_t frame_count_ = 0, capture_detections_count_ = 0;
+  std::ofstream frames_, capture_detections_, camera_, detector_, observer_;
   std::map<std::string, std::ofstream> extra_files_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> image_subs_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> info_subs_;
   std::vector<rclcpp::Subscription<Motion>::SharedPtr> motion_subs_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr> imu_subs_;
   rclcpp::Subscription<Frame>::SharedPtr frame_sub_;
-  rclcpp::Subscription<Batch>::SharedPtr batch_sub_;
+  rclcpp::Subscription<CaptureDetections>::SharedPtr capture_detections_sub_;
   rclcpp::Subscription<CameraStatus>::SharedPtr camera_sub_;
   rclcpp::Subscription<DetectorStatus>::SharedPtr detector_sub_;
   rclcpp::TimerBase::SharedPtr timer_;

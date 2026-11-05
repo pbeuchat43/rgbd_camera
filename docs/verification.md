@@ -180,10 +180,15 @@ development archive; they are not part of this public repository.
 ## Rate measurements with an external reader
 
 The optional `tools/rate_probe` executable consumes the actual atomic frame in a
-separate process and records only metadata. It also records detector batches and
+separate process and records only metadata. It also records detector capture results and
 status counters. The benchmark controller runs separately, so resource sampling
 does not block the frame callback. This consumer is excluded from ordinary
 colcon discovery and is not a provider dependency.
+
+Build against detector interfaces 0.2.0. The probe consumes `CaptureDetections`
+on `/sweep/detector/capture_detections` and writes `capture_detections.csv`.
+The matching benchmark reads that file and reports `empty_capture_detections`.
+Historical reports retain their original file and field names.
 
 Source the installed camera and detector overlays before building it:
 
@@ -231,7 +236,7 @@ session, standard headers are matched against received authoritative frame or
 motion records. Standard-output missing/duplicate counts are relative to those
 records; incomplete authoritative delivery prevents a complete standard-output
 delivery claim. Image dimensions, encoding and payload sizes are checked too.
-Do not describe an empty detection batch as a dropped frame or an accepted frame
+Do not describe an empty detection result as a dropped frame or an accepted frame
 as confirmed delivery. Warm-up, measurement and graceful shutdown are separate.
 
 For diagnosis, camera CSV records include the latest rejection/error detail,
@@ -240,6 +245,6 @@ image ages; terminal IMU clock errors include the offending timestamps and
 configured tolerance. Detector CSV records retain input/processed acquisition
 progress. `observer.csv` records synchronous file-flush duration. These samples
 help locate stalls but are not a complete trace of every queue operation.
-`--reader-depth N` changes only the external observer's image/batch subscription
+`--reader-depth N` changes only the external observer's image/result subscription
 queues (1 by default, bounded to 16); production camera/detector queues are
 unchanged. Retain that setting when comparing delivery or latency results.

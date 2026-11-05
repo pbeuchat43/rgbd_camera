@@ -100,9 +100,13 @@ rgbd_local ros2 component load /perception_container \
   -p "engine_path:='$RGBD_CONE_ENGINE'" -r frames:=camera/frames
 ```
 
-The authoritative bundle is now `/perception/camera/frames`, and detector batches
-are `/perception/detector/batches`. Both components must report fresh streaming
-status. Each batch retains its input capture identity and acquisition time.
+The authoritative bundle is now `/perception/camera/frames`, and detector results
+are `/perception/detector/capture_detections` (`CaptureDetections`, detector 0.2.0).
+Both components must report fresh streaming status. Each result retains its
+input capture identity and acquisition time. The linked October measurements
+used the earlier `Batch` interface and `/perception/detector/batches`; this naming
+update does not establish a new 60 Hz hardware measurement. Rebuild the detector,
+overlays and `tools/rate_probe` together when moving to the renamed interface.
 Each loading command allows two seconds for local discovery; the CLI's default
 half-second discovery interval can miss a newly discovered container.
 Stopping the container with Ctrl-C shuts down both components and releases the

@@ -31,7 +31,7 @@ parser.add_argument('--tolerance-ms',type=float,help='Explicit pairing limit; de
 parser.add_argument('--layout',choices=['standalone','composed'],default='standalone')
 parser.add_argument('--imu',action='store_true')
 parser.add_argument('--images',action='store_true')
-parser.add_argument('--reader-depth',type=int,default=1,choices=range(1,17),help='External image/batch reader queue depth; production queues are unchanged')
+parser.add_argument('--reader-depth',type=int,default=1,choices=range(1,17),help='External image/capture-result reader queue depth; production queues are unchanged')
 args=parser.parse_args()
 if args.tolerance_ms is None:args.tolerance_ms=(8.3 if args.fps>30 else 16.6) if args.backend=='realsense' else 5.0
 if not 5<=args.seconds<=3600:parser.error('--seconds must be within [5, 3600]')
@@ -132,7 +132,7 @@ def summarize(metadata):
         camera_admission_hz=admitted*1e9/(int(b['observed_ns'])-int(a['observed_ns'])),
         camera_rejected=int(b['rejected'])-int(a['rejected']),
         native_sequence_gaps=int(b['gaps'])-int(a['gaps']),measurement_acquisition_bounds=[low,high],readers={})
-    for name,file in [('native','native/frames.csv'),('detector','native/batches.csv')]:
+    for name,file in [('native','native/frames.csv'),('detector','native/capture_detections.csv')]:
         allrows=read(file)
         rows=[r for r in allrows if low<int(r['acquisition_ns'])<=high]
         if not rows:continue
@@ -145,7 +145,7 @@ def summarize(metadata):
         if 'callback_ns' in rows[0]:data['callback_ms']=pct([int(r['callback_ns'])/1e6 for r in rows])
         if name=='detector':
             data.update(valid_xyz=sum(int(r['valid']) for r in rows),invalid_xyz=sum(int(r['invalid']) for r in rows),
-                empty_batches=sum(int(r['valid'])+int(r['invalid'])==0 for r in rows),
+                empty_capture_detections=sum(int(r['valid'])+int(r['invalid'])==0 for r in rows),
                 completed_source_age_ms=pct([int(r['source_age_ns'])/1e6 for r in rows]),
                 inference_ms=pct([int(r['inference_ns'])/1e6 for r in rows]))
         result['readers'][name]=data
@@ -180,7 +180,7 @@ def summarize(metadata):
     (directory/'report.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(dict(output=str(directory),admitted=admitted,camera_hz=result['camera_admission_hz'],rejected=result['camera_rejected'],
         readers={k:dict(count=v['count'],missing=v['missing_from_camera'],hz=v['arrival_rate_hz'],age_p95_ms=v['source_age_ms']['p95'],
-            valid=v.get('valid_xyz'),empty=v.get('empty_batches')) for k,v in result['readers'].items()},
+            valid=v.get('valid_xyz'),empty=v.get('empty_capture_detections')) for k,v in result['readers'].items()},
         detector=result.get('detector_counters'))),flush=True)
 
 rclpy.init(); node=Controller()
