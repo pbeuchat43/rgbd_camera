@@ -14,6 +14,13 @@ requests through 30 Hz, and at 60 Hz for requests above 30 Hz (up to 60 Hz outpu
 Optional accelerometer and gyroscope outputs use the same device session and
 are disabled by default. Select the camera family explicitly with `backend`.
 
+Explicit `width:=1280 height:=720 fps:=30.0` selects the additional footage
+profile on either backend. OAK uses an aspect-preserving centre crop; D455 uses
+native 1280×720 color and depth profiles. Both publish calibrated depth on the
+rectified RGB grid. The legacy dimensions remain the defaults. This development
+profile requires its own hardware qualification; existing rate evidence below
+applies to the dimensions recorded in each campaign.
+
 Verified D455 sessions observed exposure-midpoint skew of about 1–16 ms,
 sometimes exceeding the unchanged 5 ms default. Wider pairing tolerances are an
 explicit association tradeoff, not synchronized capture. D455 IMU messages admit
@@ -62,7 +69,7 @@ encoding and deployment migration remain separate responsibilities.
 
 Canonical repository: https://github.com/pbeuchat43/rgbd_camera.
 `main` is the verified baseline and `dev` the development branch.
-Version: 0.2.0 (development milestone, not a stable platform release).
+Version: 0.3.0 (development milestone, not a stable platform release).
 
 MIT License, copyright 2026 Paul N. Beuchat. See [NOTICE.md](NOTICE.md) for
 upstream references and their separate licensing.

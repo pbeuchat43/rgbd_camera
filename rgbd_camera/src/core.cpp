@@ -22,6 +22,10 @@ bool between(double value, double low, double high) {
 void Config::validate() const {
   require(backend == "oak" || backend == "realsense", "backend must be oak or realsense");
   require(between(fps, 1, 60), "fps must be finite and within [1, 60]");
+  require((width == 0 && height == 0) ||
+          (width == 640 && height == (backend == "oak" ? 640 : 480)) ||
+          (width == 1280 && height == 720 && fps <= 30),
+          "choose the backend legacy dimensions or 1280x720 at no more than 30 Hz");
   require(between(pairing_tolerance_ms, 0.1, 50) && pairing_tolerance_ms < 500.0 / fps,
           "pairing_tolerance_ms must be in [0.1, 50] and below half a frame period");
   require(between(max_frame_age_ms, 10, 2000), "max_frame_age_ms must be in [10, 2000]");
@@ -37,7 +41,8 @@ void Config::validate() const {
 }
 
 void Geometry::validate() const {
-  require(width == 640 && (height == 640 || height == 480), "unsupported geometry dimensions");
+  require((width == 640 && (height == 640 || height == 480)) || (width == 1280 && height == 720),
+          "unsupported geometry dimensions");
   for (auto value : k) require(std::isfinite(value), "nonfinite intrinsics");
   require(k[0] > 0 && k[4] > 0 && k[2] >= 0 && k[2] < width && k[5] >= 0 && k[5] < height,
           "invalid focal length or principal point");

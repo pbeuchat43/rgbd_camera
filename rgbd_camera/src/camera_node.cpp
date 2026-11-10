@@ -41,6 +41,8 @@ class CameraNode::Implementation {
     config_.backend = setting<std::string>(node, "backend", "oak", "Explicit camera family: oak or realsense");
     config_.device_id = setting<std::string>(node, "device_id", "", "Exact device ID within the selected backend, or require exactly one device");
     config_.fps = setting<double>(node, "fps", 10.0, "RGB/depth rate request, 1..60 Hz; D455 above 30 uses native 60 Hz");
+    config_.width = setting<int>(node, "width", 0, "Output width; both dimensions zero retain the backend default");
+    config_.height = setting<int>(node, "height", 0, "Output height; 1280x720 supports up to 30 Hz");
     config_.pairing_tolerance_ms = setting<double>(node, "pairing_tolerance_ms", 5.0,
         "Maximum accepted RGB/depth skew, 0.1..50 ms and below half a frame period");
     config_.max_frame_age_ms = setting<double>(node, "max_frame_age_ms", 500.0,
@@ -117,8 +119,13 @@ class CameraNode::Implementation {
     output->rgb_info = camera_info(input->geometry, output->rgb.header);
     output->depth_info = camera_info(input->geometry, output->depth.header);
     if (rgb_) {
-      rgb_->publish(output->rgb); depth_->publish(output->depth);
-      rgb_info_->publish(output->rgb_info); depth_info_->publish(output->depth_info);
+      const auto demanded = [](const auto& publisher) {
+        return publisher->get_subscription_count() + publisher->get_intra_process_subscription_count() > 0;
+      };
+      if (demanded(rgb_)) rgb_->publish(output->rgb);
+      if (demanded(depth_)) depth_->publish(output->depth);
+      if (demanded(rgb_info_)) rgb_info_->publish(output->rgb_info);
+      if (demanded(depth_info_)) depth_info_->publish(output->depth_info);
     }
     frames_->publish(std::move(output));
   }

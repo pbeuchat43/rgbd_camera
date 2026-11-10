@@ -69,7 +69,7 @@ class RealsenseProvider final : public Provider {
       for (auto profile : sensors[index].get_stream_profiles()) {
         const auto stream = profile.stream_type();
         if (auto video = profile.as<rs2::video_stream_profile>()) {
-          if (video.width() == 640 && video.height() == 480 && profile.fps() == native_fps_) {
+          if (video.width() == config.output_width() && video.height() == config.output_height() && profile.fps() == native_fps_) {
             if (stream == RS2_STREAM_COLOR && profile.format() == RS2_FORMAT_BGR8) selected[0] = Selection{index,profile};
             if (stream == RS2_STREAM_DEPTH && profile.format() == RS2_FORMAT_Z16) selected[1] = Selection{index,profile};
           }
@@ -80,7 +80,7 @@ class RealsenseProvider final : public Provider {
         }
       }
     }
-    require(selected[0] && selected[1], "D455 requires matching supported 640x480 BGR8/Z16 native-rate profiles");
+    require(selected[0] && selected[1], "D455 requires supported BGR8/Z16 profiles at the requested dimensions and native rate");
     require(!config.enable_imu || (selected[2] && selected[3]), "requested RealSense accel/gyro streams unavailable");
     RealsenseCalibration calibration;
     const auto color_profile = selected[0]->profile.as<rs2::video_stream_profile>();
@@ -89,7 +89,8 @@ class RealsenseProvider final : public Provider {
     calibration.depth_to_color = depth_profile.get_extrinsics_to(color_profile);
     calibration.depth_unit_m = sensors[selected[1]->sensor].as<rs2::depth_sensor>().get_depth_scale();
     calibration.profile_identity = serial + ":" + info(device_,RS2_CAMERA_INFO_FIRMWARE_VERSION) +
-      ":640x480@" + std::to_string(native_fps_) + ":bgr8:z16";
+      ":" + std::to_string(config.output_width()) + "x" + std::to_string(config.output_height()) +
+      "@" + std::to_string(native_fps_) + ":bgr8:z16";
     geometry_ = std::make_unique<RealsenseGeometry>(calibration);
     identity_.source_id = "realsense:" + serial;
     identity_.generation = read_identifier("/proc/sys/kernel/random/uuid");
@@ -249,7 +250,7 @@ class RealsenseProvider final : public Provider {
       if (slot >= 2 && acquired > received) ++future_motion_time_;
       if (slot < 2) {
         auto video = frame.as<rs2::video_frame>();
-        require(video && video.get_width() == 640 && video.get_height() == 480 &&
+        require(video && video.get_width() == config_.output_width() && video.get_height() == config_.output_height() &&
                 frame.get_profile().format() == (slot == 0 ? RS2_FORMAT_BGR8 : RS2_FORMAT_Z16), "RealSense video profile changed");
         auto& queue = slot == 0 ? colors_ : depths_;
         if (queue.size() == 2) queue.pop_front();

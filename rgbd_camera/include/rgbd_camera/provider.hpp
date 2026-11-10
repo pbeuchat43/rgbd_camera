@@ -13,6 +13,7 @@ struct Config {
   std::string backend = "oak";
   std::string device_id;
   double fps = 10.0;
+  int width = 0, height = 0;  // Both zero retain the backend's legacy profile.
   double pairing_tolerance_ms = 5.0;
   double max_frame_age_ms = 500.0;
   double startup_timeout_s = 30.0;
@@ -22,6 +23,8 @@ struct Config {
   std::string optical_frame = "oak_rgb_optical_frame";
   std::string imu_frame = "oak_imu_native_frame";
   void validate() const;
+  int output_width() const { return width ? width : 640; }
+  int output_height() const { return height ? height : (backend == "oak" ? 640 : 480); }
 };
 
 struct Geometry {

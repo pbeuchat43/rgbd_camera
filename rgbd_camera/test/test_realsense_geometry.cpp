@@ -23,8 +23,8 @@ RealsenseCalibration calibration() {
 void put(std::vector<uint8_t>& data, int x, int y, uint16_t value, size_t stride = 1280) {
   data[y*stride+x*2] = value & 255; data[y*stride+x*2+1] = value >> 8;
 }
-uint16_t get(const std::vector<uint8_t>& data, int x, int y) {
-  const auto index = y*1280+x*2;
+uint16_t get(const std::vector<uint8_t>& data, int x, int y, size_t stride = 1280) {
+  const auto index = y*stride+x*2;
   return uint16_t(data[index]) | uint16_t(data[index+1]) << 8;
 }
 int main() {
@@ -83,6 +83,28 @@ int main() {
     check(rectified[240*1920+420*3] == 430%251 && rectified[240*1920+420*3+2] == 17,
           "RGB inverse Brown-Conrady rectification direction wrong");
     rejects([&] { identity.rectify_bgr(bgr.data(),bgr.size()-1,1928); }, "short RGB storage accepted");
+    // Independent native depth and output grids: padded depth input projects
+    // into a larger rectified RGB grid, including its far edge.
+    cal = calibration();
+    cal.color = {1280,720,640,360,200,150,RS2_DISTORTION_NONE,{0,0,0,0,0}};
+    RealsenseGeometry wide(cal);
+    std::vector<uint8_t> padded_depth(1296*480, 0);
+    put(padded_depth,639,479,1000,1296);
+    aligned = wide.align_depth(padded_depth.data(),padded_depth.size(),1296);
+    check(aligned.size() == 1280*720*2 && get(aligned,1278,719,2560) == 2000,
+          "independent depth and RGB grids/stride failed");
+    std::vector<uint8_t> wide_bgr(3856*720,0);
+    wide_bgr[719*3856+1279*3+2] = 173;
+    rectified = wide.rectify_bgr(wide_bgr.data(),wide_bgr.size(),3856);
+    check(rectified.size() == 1280*720*3 && rectified.back() == 173, "720p RGB map bounds failed");
+    check(wide.geometry().calibration_id != identity.geometry().calibration_id, "profile absent from fingerprint");
+    rejects([&] { wide.align_depth(padded_depth.data(),padded_depth.size()-1,1296); }, "short depth accepted");
+    cal.depth = cal.color;
+    RealsenseGeometry native_wide(cal);
+    std::vector<uint8_t> wide_depth(2560*720,0);
+    put(wide_depth,1279,719,1000,2560);
+    aligned = native_wide.align_depth(wide_depth.data(),wide_depth.size(),2560);
+    check(get(aligned,1279,719,2560) == 2000, "native 720p depth ray bounds failed");
     cal = calibration(); cal.depth_to_color.rotation[0] = 2;
     rejects([&] { RealsenseGeometry bad(cal); }, "nonrigid transform accepted");
     cal = calibration(); cal.color.model = RS2_DISTORTION_FTHETA;

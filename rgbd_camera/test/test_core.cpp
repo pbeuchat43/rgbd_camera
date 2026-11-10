@@ -24,6 +24,16 @@ Frame frame(uint64_t sequence = 1, int64_t stamp = 1000000000) {
 int main() {
   Config config;
   config.validate();
+  check(config.output_width() == 640 && config.output_height() == 640);
+  Config footage; footage.width = 1280; footage.height = 720; footage.fps = 30; footage.validate();
+  footage.backend = "realsense"; footage.validate();
+  footage.fps = 31; rejects([&] { footage.validate(); });
+  footage.fps = 30; footage.height = 0; rejects([&] { footage.validate(); });
+  footage.width = 0; footage.validate();
+  check(footage.output_width() == 640 && footage.output_height() == 480);
+  auto wide = frame(); wide.geometry.width = 1280; wide.geometry.height = 720;
+  wide.bgr.resize(1280*720*3); wide.depth_le.resize(1280*720*2);
+  PairGate wide_gate(config); check(!wide_gate.admit(wide, wide.received_ns));
   Config high_rate; high_rate.fps = 60; high_rate.validate();
   high_rate.backend = "realsense"; high_rate.validate();
   high_rate.pairing_tolerance_ms = 15;

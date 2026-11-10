@@ -21,9 +21,9 @@ void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-std::array<double, 9> intrinsics(dai::ImgFrame& image) {
+std::array<double, 9> intrinsics(dai::ImgFrame& image, int width, int height) {
   auto& transform = image.getTransformation();
-  require(transform.getSize() == std::make_pair(size_t(640), size_t(640)),
+  require(transform.getSize() == std::make_pair(size_t(width), size_t(height)),
           "unexpected SDK transformation size");
   const auto matrix = transform.getIntrinsicMatrix();
   std::array<double, 9> result{};
@@ -32,14 +32,15 @@ std::array<double, 9> intrinsics(dai::ImgFrame& image) {
   return result;
 }
 
-std::vector<uint8_t> copy_image(dai::ImgFrame& image, unsigned int row_bytes) {
-  require(image.getWidth() == 640 && image.getHeight() == 640, "unexpected SDK image size");
+std::vector<uint8_t> copy_image(dai::ImgFrame& image, int width, int height, unsigned int pixel_bytes) {
+  require(image.getWidth() == uint32_t(width) && image.getHeight() == uint32_t(height), "unexpected SDK image size");
+  const auto row_bytes = width * pixel_bytes;
   const auto stride = image.getStride();
   const auto data = image.getData();
-  require(stride >= row_bytes && data.size() >= size_t(stride) * 640,
+  require(stride >= row_bytes && data.size() >= size_t(stride) * height,
           "unexpected SDK buffer stride/size");
-  std::vector<uint8_t> output(size_t(row_bytes) * 640);
-  for (size_t row = 0; row < 640; ++row)
+  std::vector<uint8_t> output(size_t(row_bytes) * height);
+  for (size_t row = 0; row < size_t(height); ++row)
     std::copy_n(data.begin() + row * stride, row_bytes, output.begin() + row * row_bytes);
   return output;
 }
@@ -50,6 +51,7 @@ class OakProvider final : public Provider {
   Identity start(const Config& config) override {
     require(!device_, "provider already started");
     config.validate();
+    width_ = config.output_width(); height_ = config.output_height();
     auto devices = dai::Device::getAllAvailableDevices();
     if (!config.device_id.empty()) {
       devices.erase(std::remove_if(devices.begin(), devices.end(), [&](const auto& info) {
@@ -89,8 +91,10 @@ class OakProvider final : public Provider {
     auto rgb_camera = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_A);
     auto left = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_B);
     auto right = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_C);
-    auto rgb = rgb_camera->requestOutput({640, 640}, dai::ImgFrame::Type::BGR888i,
-                                        dai::ImgResizeMode::STRETCH, float(config.fps), true);
+    // Keep the legacy square projection unchanged. The footage profile uses an
+    // aspect-preserving centre crop, with the delivered SDK intrinsics below.
+    auto rgb = rgb_camera->requestOutput({uint32_t(width_), uint32_t(height_)}, dai::ImgFrame::Type::BGR888i,
+        width_ == 640 ? dai::ImgResizeMode::STRETCH : dai::ImgResizeMode::CROP, float(config.fps), true);
     auto stereo = pipeline_->create<dai::node::StereoDepth>();
     stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::DENSITY);
     stereo->setSubpixel(true);
@@ -151,15 +155,17 @@ class OakProvider final : public Provider {
       frame->sequence = rgb->getSequenceNum(); frame->depth_sequence = depth->getSequenceNum();
       frame->acquisition_ns = nanos(rgb->getTimestamp());
       frame->depth_acquisition_ns = nanos(depth->getTimestamp()); frame->received_ns = received;
-      frame->geometry.k = intrinsics(*rgb);
-      const auto depth_k = intrinsics(*depth);
+      frame->geometry.width = width_; frame->geometry.height = height_;
+      frame->geometry.k = intrinsics(*rgb, width_, height_);
+      const auto depth_k = intrinsics(*depth, width_, height_);
       for (size_t i = 0; i < 9; ++i)
         require(std::abs(frame->geometry.k[i] - depth_k[i]) < 1e-4, "RGB/depth virtual camera mismatch");
       std::ostringstream calibration;
-      calibration << calibration_json_ << ":640x640:undistorted:aligned_rgb:optical_z:mm:" << std::setprecision(17);
+      calibration << calibration_json_ << ':' << width_ << 'x' << height_
+                  << ":undistorted:aligned_rgb:optical_z:mm:" << std::setprecision(17);
       for (auto value : frame->geometry.k) calibration << value << ',';
       frame->geometry.calibration_id = sha256(calibration.str());
-      frame->bgr = copy_image(*rgb, 640 * 3); frame->depth_le = copy_image(*depth, 640 * 2);
+      frame->bgr = copy_image(*rgb, width_, height_, 3); frame->depth_le = copy_image(*depth, width_, height_, 2);
       result.frame = std::move(frame);
     }
     return result;
@@ -180,6 +186,7 @@ class OakProvider final : public Provider {
   }
  private:
   DeviceLock lock_;
+  int width_ = 640, height_ = 640;
   std::string calibration_json_;
   std::shared_ptr<dai::Device> device_;
   std::unique_ptr<dai::Pipeline> pipeline_;

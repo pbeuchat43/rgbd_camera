@@ -19,8 +19,8 @@ if one might later prove incompatible. No fallback device is silently selected.
 The OAK backend requires RVC2, CAM_A/B/C and a calibrated B/C stereo pair. The
 resolved device, USB link and integrated IMU model are reported in status.
 The RealSense backend requires D455 (product ID `0B5C`), firmware `5.17.0.10`
-with librealsense `2.56.5`, and matching supported 640×480
-BGR8/Z16 profiles at 30 Hz (60 Hz for output requests above 30 Hz).
+with librealsense `2.56.5`, and matching supported BGR8/Z16 profiles:
+640×480 at 30 Hz (60 Hz for output requests above 30 Hz), or 1280×720 at 30 Hz.
 An unavailable backend or native-rate profile fails explicitly.
 SDK exclusivity plus a per-user advisory lock prevent concurrent owners. Other
 software must also respect SDK exclusivity; the lock is not a cross-user security
@@ -37,6 +37,7 @@ may subscribe/unsubscribe; they cannot modify exposure, geometry or capture rate
 | `backend` | `oak` | Explicit family: `oak` or `realsense`; must be enabled in this build |
 | `device_id` | empty | Exact SDK identity, or exactly one available device |
 | `fps` | 10.0 | Finite 1–60 Hz request; hardware rate is measured separately |
+| `width`, `height` | 0, 0 | Both zero select OAK 640×640 or D455 640×480; explicit legacy dimensions or 1280×720 accepted. The 720p profile allows 1–30 Hz requests |
 | `pairing_tolerance_ms` | 5.0 | 0.1–50 ms, strictly less than half a frame period |
 | `max_frame_age_ms` | 500.0 | 10–2000 ms; maximum source age at admission |
 | `startup_timeout_s` | 30.0 | 5–120 s first raw-pair deadline; synchronous SDK open cannot be preempted |
@@ -67,8 +68,9 @@ signed `depth - rgb` skew are explicit. A session restart, clock fault or geomet
 change invalidates old associations. Consumers reset their bounded retained work
 on a new generation. `header.frame_id` is a coordinate frame, never a capture ID.
 
-The OAK pipeline requests a 640×640 undistorted RGB image using STRETCH, 640×400
-stereo inputs, DENSITY/subpixel depth aligned to that virtual RGB image, and a
+The OAK pipeline requests a 640×640 undistorted RGB image using STRETCH by default,
+or 1280×720 using aspect-preserving CROP. Both use 640×400 stereo inputs,
+DENSITY/subpixel depth aligned to that virtual RGB image, and a
 device Sync node. Sync attempts are finite (one): groups outside the configured
 tolerance are exposed to host diagnostics and discarded, instead of hiding all
 input progress. The host independently checks size, geometry, time, sequence,
@@ -77,8 +79,9 @@ Persistent rejection makes the accepted stream unavailable without closing the
 camera. Device/pipeline loss, invalid geometry, or clock/sequence regression are
 terminal. A process running is not proof of valid frame delivery.
 
-D455 uses independent 640×480 streams at 30 Hz for requests through 30 Hz, or
-60 Hz for higher requests. It pairs the oldest retained frames within half a
+D455 uses independent native color/depth streams at the selected dimensions:
+30 Hz for requests through 30 Hz, or 60 Hz for higher requests at 640×480 only.
+It pairs the oldest retained frames within half a
 native frame period without reusing frames, then admits
 pairs at the requested output `fps`. Native capture and publication rates are
 distinct. Actual exposure skew is retained and passes the same host gate; the
