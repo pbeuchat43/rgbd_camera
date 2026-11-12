@@ -51,9 +51,10 @@ may subscribe/unsubscribe; they cannot modify exposure, geometry or capture rate
 | `optical_frame` | `<backend>_rgb_optical_frame` | Rectified virtual RGB optical coordinate frame |
 | `imu_frame` | `oak_imu_native_frame` or `realsense_imu_frame` | Backend-declared IMU axes/origin, distinct from optical frame |
 
-`use_sim_time=true` is rejected for this physical provider. Exposure is the SDK
-default auto exposure; this slice does not expose exposure/projector controls or
-write device calibration, flash firmware, or change stored settings.
+`use_sim_time=true` is rejected for this physical provider. Exposure remains the
+SDK default auto exposure except for the explicit OAK stereo settings below.
+The provider does not write device calibration, flash firmware, change stored
+settings or expose projector controls.
 
 ## Images and exact association
 
