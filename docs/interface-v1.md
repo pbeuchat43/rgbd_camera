@@ -1,7 +1,11 @@
 # Camera interface v1
 
 The `rgbd_camera_interfaces` ROS package is independent of the SDK and provider.
-`Frame`, `Motion`, `CaptureReference` and `Status` are version 1 contracts.
+Package 0.2.0 updates `CaptureReference` to schema 2 and adds depth exposure
+timing to `Frame`. All consumers, including detector, overlays and recorder,
+must rebuild together; ROS wire compatibility with package 0.1.x is not retained.
+`Motion` embeds schema 2 but leaves exposure fields zero (not applicable).
+`Status` retains its existing semantics.
 The reusable C++ `Provider` API is in `rgbd_camera/provider.hpp`; it has no ROS
 or camera SDK types. One owner calls start, polls bounded products, then stops.
 Providers must own their returned storage and stop on terminal faults.
@@ -119,6 +123,19 @@ for exact research associations; ordinary image tools may use the standard branc
 External recording must record the bundle to preserve this complete contract.
 
 ## Clocks and freshness
+
+Schema 2 adds `exposure_midpoint_ns` and `exposure_duration_ns` in the capture
+reference, plus independent `depth_exposure_midpoint_ns` and
+`depth_exposure_duration_ns` in Frame. Values are signed nanoseconds; zero means
+unknown. Duration is nonnegative and at most one second; a known duration requires
+a known midpoint, and a known midpoint cannot exceed receipt. Existing
+`acquisition_ns`, depth pairing/skew and standard RGB-D headers retain their
+previous meaning. D455 acquisition already uses its SDK exposure midpoint; OAK
+preserves its legacy timestamp and supplies the explicit MIDDLE timestamp
+separately. OAK aligned-depth exposure is unknown until a documented sensor
+association is established; it is not copied from RGB or inferred from receipt.
+Consumers must preserve these fields atomically. Cone/pose association uses the
+explicit RGB midpoint when known, never a guessed offset from legacy event time.
 
 DepthAI maps device acquisition timestamps into host `steady_clock`. On the tested
 Linux platform this is monotonic time, labeled `linux_monotonic:<boot UUID>`.

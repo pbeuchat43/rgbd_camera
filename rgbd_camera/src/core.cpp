@@ -87,6 +87,13 @@ std::optional<std::string> PairGate::admit(const Frame& frame, int64_t now_ns) {
           frame.received_ns <= now_ns, "invalid acquisition clock mapping");
   require(frame.acquisition_ns > last_rgb_ns_ && frame.depth_acquisition_ns > last_depth_ns_,
           "acquisition clock regressed or repeated");
+  const auto exposure_valid = [&](int64_t midpoint, int64_t duration) {
+    return midpoint >= 0 && midpoint <= frame.received_ns && duration >= 0 &&
+        duration <= 1000000000 && (duration == 0 || midpoint > 0);
+  };
+  require(exposure_valid(frame.exposure_midpoint_ns, frame.exposure_duration_ns) &&
+          exposure_valid(frame.depth_exposure_midpoint_ns, frame.depth_exposure_duration_ns),
+          "invalid exposure timing");
   if (last_sequence_) {
     require(frame.sequence > *last_sequence_ && frame.depth_sequence > *last_depth_sequence_,
             "image sequence regressed or repeated");

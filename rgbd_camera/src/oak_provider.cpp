@@ -154,6 +154,8 @@ class OakProvider final : public Provider {
       require(rgb->getSequenceNum() >= 0 && depth->getSequenceNum() >= 0, "negative SDK image identity");
       frame->sequence = rgb->getSequenceNum(); frame->depth_sequence = depth->getSequenceNum();
       frame->acquisition_ns = nanos(rgb->getTimestamp());
+      frame->exposure_midpoint_ns = nanos(rgb->getTimestamp(dai::CameraExposureOffset::MIDDLE));
+      frame->exposure_duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(rgb->getExposureTime()).count();
       frame->depth_acquisition_ns = nanos(depth->getTimestamp()); frame->received_ns = received;
       frame->geometry.width = width_; frame->geometry.height = height_;
       frame->geometry.k = intrinsics(*rgb, width_, height_);

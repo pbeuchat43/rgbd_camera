@@ -76,7 +76,7 @@ class Observer(Node):
     def frame(self, message):
         capture = message.capture
         now = time.monotonic_ns()
-        require(capture.schema_version == 1, "unsupported schema")
+        require(capture.schema_version == 2, "unsupported schema")
         require(capture.stream_id == "rgbd", "missing image stream identity")
         require(capture.source_id.startswith(self.backend + ":") and capture.generation, "missing device identity")
         require(capture.clock_domain.startswith("linux_monotonic:"), "wrong clock domain")

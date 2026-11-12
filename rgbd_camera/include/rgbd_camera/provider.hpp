@@ -48,6 +48,8 @@ struct Identity {
 struct Frame {
   uint64_t sequence = 0, depth_sequence = 0;
   int64_t acquisition_ns = 0, depth_acquisition_ns = 0, received_ns = 0;
+  int64_t exposure_midpoint_ns = 0, exposure_duration_ns = 0;
+  int64_t depth_exposure_midpoint_ns = 0, depth_exposure_duration_ns = 0;
   Geometry geometry;
   // Owned buffers: SDK storage is never retained/reused underneath a consumer.
   std::vector<uint8_t> bgr, depth_le;

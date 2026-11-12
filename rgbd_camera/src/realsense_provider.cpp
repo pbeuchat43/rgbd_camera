@@ -166,6 +166,12 @@ class RealsenseProvider final : public Provider {
       auto output = std::make_unique<Frame>();
       output->sequence = color->frame.get_frame_number(); output->depth_sequence = depth->frame.get_frame_number();
       output->acquisition_ns = color->acquired; output->depth_acquisition_ns = depth->acquired;
+      output->exposure_midpoint_ns = color->acquired;
+      output->depth_exposure_midpoint_ns = depth->acquired;
+      if (color->frame.supports_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE))
+        output->exposure_duration_ns = color->frame.get_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE) * 1000;
+      if (depth->frame.supports_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE))
+        output->depth_exposure_duration_ns = depth->frame.get_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE) * 1000;
       output->received_ns = std::max(color->received,depth->received);
       output->geometry = geometry_->geometry();
       output->bgr = geometry_->rectify_bgr(static_cast<const uint8_t*>(color->frame.get_data()),

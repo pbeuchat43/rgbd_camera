@@ -103,7 +103,11 @@ class CameraNode::Implementation {
   void publish_frame(std::unique_ptr<Frame> input) {
     auto output = std::make_unique<FrameMessage>();
     output->capture = reference("rgbd", input->sequence, input->acquisition_ns, input->received_ns);
+    output->capture.exposure_midpoint_ns = input->exposure_midpoint_ns;
+    output->capture.exposure_duration_ns = input->exposure_duration_ns;
     output->depth_sequence = input->depth_sequence; output->depth_acquisition_ns = input->depth_acquisition_ns;
+    output->depth_exposure_midpoint_ns = input->depth_exposure_midpoint_ns;
+    output->depth_exposure_duration_ns = input->depth_exposure_duration_ns;
     output->skew_ns = input->depth_acquisition_ns - input->acquisition_ns;
     output->pairing_tolerance_ns = int64_t(config_.pairing_tolerance_ms * 1e6);
     output->calibration_id = input->geometry.calibration_id; output->backend = identity_.backend;
