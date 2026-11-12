@@ -25,3 +25,15 @@ uint64 rejected_pairs
 uint64 accel_samples
 uint64 gyro_samples
 uint64 imu_sequence_gaps
+bool stereo_enabled
+string stereo_state
+int64 last_stereo_ns
+uint64 stereo_pairs
+uint64 stereo_rejected
+uint64 stereo_sequence_gaps
+bool combined_imu_enabled
+string combined_imu_state
+int64 last_combined_imu_ns
+uint64 combined_imu_samples
+uint64 combined_imu_rejected
+uint64 combined_imu_overflows

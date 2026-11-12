@@ -72,8 +72,23 @@ class OakProvider final : public Provider {
       if (pair.left == dai::CameraBoardSocket::CAM_B && pair.right == dai::CameraBoardSocket::CAM_C)
         calibrated_stereo = true;
     require(calibrated_stereo, "calibrated CAM_B/C stereo pair required");
-    calibration_json_ = device_->readCalibration().eepromToJson().dump();
+    const auto calibration = device_->readCalibration();
+    calibration_json_ = calibration.eepromToJson().dump();
     Identity identity;
+    if (config.publish_stereo) {
+      auto extrinsics = std::make_shared<InternalExtrinsics>();
+      const auto convert = [](const auto& matrix) {
+        auto result = identity_transform();
+        for (size_t r = 0; r < 3; ++r) for (size_t c = 0; c < 4; ++c)
+          result[4*r+c] = matrix[r][c] * (c == 3 ? 0.01 : 1.0); // EEPROM centimetres -> metres.
+        return result;
+      };
+      extrinsics->rgb_from_camera[0] = convert(calibration.getCameraExtrinsics(dai::CameraBoardSocket::CAM_B, dai::CameraBoardSocket::CAM_A, false));
+      extrinsics->rgb_from_camera[1] = convert(calibration.getCameraExtrinsics(dai::CameraBoardSocket::CAM_C, dai::CameraBoardSocket::CAM_A, false));
+      extrinsics->has_imu = config.enable_imu;
+      if (config.enable_imu) extrinsics->rgb_from_imu = convert(calibration.getImuToCameraExtrinsics(dai::CameraBoardSocket::CAM_A));
+      extrinsics->validate(); identity.extrinsics = std::move(extrinsics);
+    }
     identity.source_id = "oak:" + device_->getDeviceId();
     identity.generation = read_identifier("/proc/sys/kernel/random/uuid");
     identity.clock_domain = "linux_monotonic:" + read_identifier("/proc/sys/kernel/random/boot_id");
@@ -88,20 +103,31 @@ class OakProvider final : public Provider {
               "IMU requested but this camera reports no integrated IMU");
 
     pipeline_ = std::make_unique<dai::Pipeline>(device_);
+    pipeline_->setXLinkChunkSize(0);
     auto rgb_camera = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_A);
     auto left = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_B);
     auto right = pipeline_->create<dai::node::Camera>()->build(dai::CameraBoardSocket::CAM_C);
+    if (config.mono_exposure_us) {
+      left->initialControl.setManualExposure(config.mono_exposure_us, config.mono_iso);
+      right->initialControl.setManualExposure(config.mono_exposure_us, config.mono_iso);
+    }
     // Keep the legacy square projection unchanged. The footage profile uses an
     // aspect-preserving centre crop, with the delivered SDK intrinsics below.
     auto rgb = rgb_camera->requestOutput({uint32_t(width_), uint32_t(height_)}, dai::ImgFrame::Type::BGR888i,
-        width_ == 640 ? dai::ImgResizeMode::STRETCH : dai::ImgResizeMode::CROP, float(config.fps), true);
+        width_ == height_ ? dai::ImgResizeMode::STRETCH : dai::ImgResizeMode::CROP, float(config.fps), true);
     auto stereo = pipeline_->create<dai::node::StereoDepth>();
     stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::DENSITY);
     stereo->setSubpixel(true);
-    left->requestOutput({640, 400}, dai::ImgFrame::Type::RAW8, dai::ImgResizeMode::STRETCH,
-                        float(config.fps))->link(stereo->left);
-    right->requestOutput({640, 400}, dai::ImgFrame::Type::RAW8, dai::ImgResizeMode::STRETCH,
-                         float(config.fps))->link(stereo->right);
+    auto left_out = left->requestOutput({640, 400}, dai::ImgFrame::Type::RAW8, dai::ImgResizeMode::STRETCH, float(config.fps));
+    auto right_out = right->requestOutput({640, 400}, dai::ImgFrame::Type::RAW8, dai::ImgResizeMode::STRETCH, float(config.fps));
+    left_out->link(stereo->left); right_out->link(stereo->right);
+    if (config.publish_stereo) {
+      auto pair = pipeline_->create<dai::node::Sync>();
+      pair->setSyncThreshold(std::chrono::microseconds(100)); pair->setSyncAttempts(1);
+      for (const auto* name : {"left", "right"}) { pair->inputs[name].setMaxSize(2); pair->inputs[name].setBlocking(false); }
+      left_out->link(pair->inputs["left"]); right_out->link(pair->inputs["right"]);
+      stereo_frames_ = pair->out.createOutputQueue(1, false);
+    }
     rgb->link(stereo->inputAlignTo);
     auto sync = pipeline_->create<dai::node::Sync>();
     sync->setSyncThreshold(std::chrono::nanoseconds(int64_t(config.pairing_tolerance_ms * 1e6)));
@@ -114,10 +140,11 @@ class OakProvider final : public Provider {
     frames_ = sync->out.createOutputQueue(1, false);
     if (config.enable_imu) {
       auto imu = pipeline_->create<dai::node::IMU>();
-      imu->enableIMUSensor(dai::IMUSensor::ACCELEROMETER_RAW, 100);
-      imu->enableIMUSensor(dai::IMUSensor::GYROSCOPE_RAW, 100);
+      const auto rate = config.imu_rate_hz ? config.imu_rate_hz : 100;
+      imu->enableIMUSensor(dai::IMUSensor::ACCELEROMETER_RAW, rate);
+      imu->enableIMUSensor(dai::IMUSensor::GYROSCOPE_RAW, rate);
       imu->setBatchReportThreshold(1); imu->setMaxBatchReports(10);
-      motion_ = imu->out.createOutputQueue(4, false);
+      motion_ = imu->out.createOutputQueue(16, false);
     }
     pipeline_->start();
     return identity;
@@ -127,7 +154,9 @@ class OakProvider final : public Provider {
     require(device_ && !device_->isClosed() && pipeline_->isRunning(), "camera connection/pipeline unavailable");
     Products result;
     if (motion_) {
-      if (auto data = motion_->tryGet<dai::IMUData>()) {
+      const auto batch = motion_->tryGetAll<dai::IMUData>(); // One atomic bounded snapshot.
+      require(batch.size() <= 16, "SDK exceeded IMU host queue bound");
+      for (const auto& data : batch) {
         require(data->packets.size() <= 10, "SDK exceeded IMU batch limit");
         const auto received = monotonic_ns();
         for (const auto& packet : data->packets) {
@@ -142,6 +171,30 @@ class OakProvider final : public Provider {
                                      received, {g.x, g.y, g.z}});
         }
       }
+    }
+    if (stereo_frames_) if (auto group = stereo_frames_->tryGet<dai::MessageGroup>()) {
+      auto pair = std::make_unique<StereoFrame>(); pair->received_ns = monotonic_ns();
+      std::ostringstream calibration;
+      calibration << calibration_json_ << ":raw_stereo_640x400:" << std::setprecision(17);
+      for (size_t i = 0; i < 2; ++i) {
+        auto image = std::dynamic_pointer_cast<dai::ImgFrame>((*group)[i == 0 ? "left" : "right"]);
+        require(image && image->getType() == dai::ImgFrame::Type::RAW8 && image->getSequenceNum() >= 0, "invalid OAK stereo image");
+        pair->sequence[i] = image->getSequenceNum(); pair->event_ns[i] = nanos(image->getTimestamp());
+        pair->midpoint_ns[i] = nanos(image->getTimestamp(dai::CameraExposureOffset::MIDDLE));
+        pair->exposure_ns[i] = std::chrono::duration_cast<std::chrono::nanoseconds>(image->getExposureTime()).count();
+        auto& model = pair->cameras[i]; model.width = 640; model.height = 400;
+        model.k = intrinsics(*image, 640, 400);
+        const auto distortion = image->getTransformation().getDistortionCoefficients();
+        require(distortion.size() == 5 || distortion.size() >= 8, "unsupported OAK stereo distortion");
+        const size_t count = distortion.size() == 5 ? 5 : 8;
+        for (size_t k = count; k < distortion.size(); ++k) require(std::abs(distortion[k]) < 1e-8, "unsupported higher-order stereo distortion");
+        model.d.assign(distortion.begin(), distortion.begin() + count); model.validate();
+        for (double x : model.k) calibration << x << ',';
+        for (double x : model.d) calibration << x << ',';
+        pair->pixels[i] = copy_image(*image, 640, 400, 1);
+      }
+      pair->calibration_id = sha256(calibration.str());
+      result.stereo = std::move(pair);
     }
     if (auto group = frames_->tryGet<dai::MessageGroup>()) {
       const auto received = monotonic_ns();
@@ -178,7 +231,7 @@ class OakProvider final : public Provider {
     if (pipeline_) {
       try { pipeline_->stop(); pipeline_->wait(); } catch (...) { failure = std::current_exception(); }
     }
-    motion_.reset(); frames_.reset(); pipeline_.reset();
+    motion_.reset(); frames_.reset(); stereo_frames_.reset(); pipeline_.reset();
     if (device_) {
       try { device_->close(); } catch (...) { if (!failure) failure = std::current_exception(); }
       device_.reset();
@@ -192,7 +245,7 @@ class OakProvider final : public Provider {
   std::string calibration_json_;
   std::shared_ptr<dai::Device> device_;
   std::unique_ptr<dai::Pipeline> pipeline_;
-  std::shared_ptr<dai::MessageQueue> frames_, motion_;
+  std::shared_ptr<dai::MessageQueue> frames_, motion_, stereo_frames_;
 };
 }  // namespace
 

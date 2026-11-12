@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Paul N. Beuchat. MIT License.
 #include "rgbd_camera/camera_node.hpp"
+#include "rgbd_camera/odometry_output.hpp"
 #include <rgbd_camera_interfaces/msg/frame.hpp>
 #include <rgbd_camera_interfaces/msg/motion.hpp>
 #include <rgbd_camera_interfaces/msg/status.hpp>
@@ -43,6 +44,8 @@ class CameraNode::Implementation {
     config_.fps = setting<double>(node, "fps", 10.0, "RGB/depth rate request, 1..60 Hz; D455 above 30 uses native 60 Hz");
     config_.width = setting<int>(node, "width", 0, "Output width; both dimensions zero retain the backend default");
     config_.height = setting<int>(node, "height", 0, "Output height; 1280x720 supports up to 30 Hz");
+    config_.depth_width = setting<int>(node, "depth_width", 0, "D455 native depth width; zero follows RGB");
+    config_.depth_height = setting<int>(node, "depth_height", 0, "D455 native depth height; stereo requires 640x480");
     config_.pairing_tolerance_ms = setting<double>(node, "pairing_tolerance_ms", 5.0,
         "Maximum accepted RGB/depth skew, 0.1..50 ms and below half a frame period");
     config_.max_frame_age_ms = setting<double>(node, "max_frame_age_ms", 500.0,
@@ -53,10 +56,18 @@ class CameraNode::Implementation {
         "Raw acquisition silence deadline, 1..30 seconds; does not count rejected pairs as silence");
     config_.enable_imu = setting<bool>(node, "enable_imu", false, "Enable raw accel and gyro from the same camera session");
     config_.publish_images = setting<bool>(node, "publish_images", false, "Also publish standard RGB/depth topics (copies)");
+    config_.publish_stereo = setting<bool>(node, "publish_stereo", false, "Export calibrated 30 Hz mono stereo from the sole device session");
+    config_.combine_imu = setting<bool>(node, "combine_imu", false, "Interpolate acceleration at gyro timestamps with bounded brackets");
+    config_.imu_rate_hz = setting<int>(node, "imu_rate_hz", 0, "OAK raw rate request 100/200; zero preserves backend defaults");
+    config_.mono_exposure_us = setting<int>(node, "mono_exposure_us", 0, "OAK stereo manual exposure; zero preserves auto exposure");
+    config_.mono_iso = setting<int>(node, "mono_iso", 0, "OAK stereo manual ISO paired with mono_exposure_us");
     config_.optical_frame = setting<std::string>(node, "optical_frame", config_.backend + "_rgb_optical_frame", "Rectified RGB optical frame");
     config_.imu_frame = setting<std::string>(node, "imu_frame", config_.backend == "oak" ? "oak_imu_native_frame" : "realsense_imu_frame",
         "Backend-declared IMU axes and origin; no mounting transform implied");
+    config_.left_frame = setting<std::string>(node, "left_frame", config_.backend + "_left_optical_frame", "Left stereo optical frame");
+    config_.right_frame = setting<std::string>(node, "right_frame", config_.backend + "_right_optical_frame", "Right stereo optical frame");
     config_.validate();
+    if (config_.publish_stereo) odometry_output_ = std::make_unique<OdometryOutput>(node, config_);
     if (!provider_) provider_ = make_provider(config_.backend);
     const auto image_qos = rclcpp::SensorDataQoS().keep_last(1);
     frames_ = node.create_publisher<FrameMessage>("~/frames", image_qos);
@@ -75,6 +86,10 @@ class CameraNode::Implementation {
     }
     status_.state = "starting"; status_.imu_enabled = config_.enable_imu;
     status_.imu_state = config_.enable_imu ? "starting" : "disabled";
+    status_.stereo_enabled = config_.publish_stereo;
+    status_.stereo_state = config_.publish_stereo ? "starting" : "disabled";
+    status_.combined_imu_enabled = config_.combine_imu;
+    status_.combined_imu_state = config_.combine_imu ? "starting" : "disabled";
     status_.pairing_tolerance_ns = int64_t(config_.pairing_tolerance_ms * 1e6);
     status_.max_frame_age_ns = int64_t(config_.max_frame_age_ms * 1e6);
     timer_ = node.create_wall_timer(std::chrono::milliseconds(200), [this] { publish_status(); });
@@ -175,12 +190,17 @@ class CameraNode::Implementation {
         output.observed_ns - std::min(output.last_accel_ns, output.last_gyro_ns) <= output.max_frame_age_ns)
         ? "streaming" : "unavailable";
     }
+    if (output.stereo_enabled) output.stereo_state = output.state != "error" && output.last_stereo_ns > 0 &&
+      output.observed_ns - output.last_stereo_ns <= output.max_frame_age_ns ? "streaming" : "unavailable";
+    if (output.combined_imu_enabled) output.combined_imu_state = output.state != "error" && output.last_combined_imu_ns > 0 &&
+      output.observed_ns - output.last_combined_imu_ns <= output.max_frame_age_ns ? "streaming" : "unavailable";
     status_publisher_->publish(output);
   }
   void run() {
     try {
       const auto started = monotonic_ns();
       identity_ = provider_->start(config_);
+      if (odometry_output_) odometry_output_->start(identity_);
       {
         std::lock_guard<std::mutex> guard(mutex_);
         status_.source_id = identity_.source_id; status_.generation = identity_.generation;
@@ -188,11 +208,25 @@ class CameraNode::Implementation {
         status_.usb_speed = identity_.usb_speed; status_.imu_sensor = identity_.imu_sensor;
       }
       PairGate pairs(config_); MotionGate motion(identity_.imu_future_tolerance_ns);
+      StereoGate stereo;
+      std::unique_ptr<ImuCombiner> combiner;
+      if (config_.combine_imu) combiner = std::make_unique<ImuCombiner>(config_.backend == "oak" ? 10000000 : 50000000);
       int64_t last_raw = 0;
       while (!stopping_ && rclcpp::ok(node_.get_node_base_interface()->get_context())) {
         auto products = provider_->poll();
         const auto now = monotonic_ns();
-        if (products.motion.size() > 20) throw std::runtime_error("provider exceeded motion batch bound");
+        if (products.motion.size() > (config_.backend == "oak" ? 320u : 20u)) throw std::runtime_error("provider exceeded motion batch bound");
+        if (products.stereo) {
+          if (!odometry_output_) throw std::runtime_error("provider emitted disabled stereo");
+          const auto reason = stereo.admit(*products.stereo, now, int64_t(config_.max_frame_age_ms * 1e6));
+          {
+            std::lock_guard<std::mutex> guard(mutex_);
+            status_.stereo_sequence_gaps = stereo.gaps();
+            if (reason) { ++status_.stereo_rejected; status_.detail = *reason; }
+            else { ++status_.stereo_pairs; status_.last_stereo_ns = std::max(products.stereo->midpoint_ns[0], products.stereo->midpoint_ns[1]); }
+          }
+          if (!reason) odometry_output_->stereo(std::move(products.stereo));
+        }
         if (!products.frame && !last_raw && !products.diagnostic.empty()) {
           std::lock_guard<std::mutex> guard(mutex_);
           status_.detail = products.diagnostic.substr(0,1024);
@@ -219,10 +253,19 @@ class CameraNode::Implementation {
           if (!config_.enable_imu) throw std::runtime_error("provider emitted disabled IMU output");
           if (!motion.admit(sample, monotonic_ns(), int64_t(config_.max_frame_age_ms * 1e6))) continue;
           publish_motion(sample);
+          if (combiner) combiner->push(sample);
           std::lock_guard<std::mutex> guard(mutex_);
           status_.imu_sequence_gaps = motion.gaps();
           if (sample.kind == MotionKind::Accelerometer) { ++status_.accel_samples; status_.last_accel_ns = sample.acquisition_ns; }
           else { ++status_.gyro_samples; status_.last_gyro_ns = sample.acquisition_ns; }
+        }
+        if (combiner) {
+          const auto combined = combiner->drain(monotonic_ns(), int64_t(config_.max_frame_age_ms * 1e6));
+          for (const auto& sample : combined) odometry_output_->motion(sample);
+          std::lock_guard<std::mutex> guard(mutex_);
+          status_.combined_imu_samples += combined.size();
+          if (!combined.empty()) status_.last_combined_imu_ns = combined.back().gyro.acquisition_ns;
+          status_.combined_imu_rejected = combiner->rejected(); status_.combined_imu_overflows = combiner->overflows();
         }
         if ((!last_raw && now - started > config_.startup_timeout_s * 1e9) ||
             (last_raw && now - last_raw > config_.stall_timeout_s * 1e9))
@@ -248,6 +291,7 @@ class CameraNode::Implementation {
   Identity identity_;
   uint64_t accel_sequence_ = 0, gyro_sequence_ = 0;
   std::unique_ptr<Provider> provider_;
+  std::unique_ptr<OdometryOutput> odometry_output_;
   std::atomic<bool> stopping_{false};
   std::thread worker_;
   std::mutex mutex_;

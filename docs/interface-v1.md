@@ -57,6 +57,50 @@ write device calibration, flash firmware, or change stored settings.
 
 ## Images and exact association
 
+### Optional odometry input (package 0.4.0)
+
+`publish_stereo=true` exports mono8 `~/stereo/left/image` and
+`~/stereo/right/image`, matching `camera_info` topics and the atomic
+`~/stereo/capture` sidecar. Stereo is supported at 30 Hz only: raw OAK 640×400,
+or startup-validated rectified D455 640×480. Each image keeps its own actual
+exposure midpoint; the sidecar header is the later midpoint, mapped with the
+fixed session offset. It retains both source references and the stereo calibration
+fingerprint. The maximum admitted midpoint skew is 1 ms. Buffers are bounded;
+sequence gaps and rejected/stale pairs remain observable in Status.
+
+`left_frame` and `right_frame` default to `<backend>_left_optical_frame` and
+`<backend>_right_optical_frame`. The provider publishes measured internal static
+transforms from the existing RGB optical frame to stereo and enabled IMU frames.
+It does not publish robot mounting transforms or odometry TF. OAK EEPROM
+translation is converted from centimetres to metres. Raw stereo uses delivered
+intrinsics and distortion; D455 rectification requires matching K, zero D,
+identity relative rotation and a positive horizontal left-to-right baseline.
+Unsupported geometry fails explicitly; model names alone do not select rectification.
+
+`combine_imu=true` requires stereo and `enable_imu=true`. OAK additionally requires
+explicit `imu_rate_hz=200`; otherwise zero preserves legacy rate selection.
+The optional `~/imu/combined` sample keeps the gyro timestamp and interpolates
+only between bracketing acceleration samples. Bracket gaps are at most 10 ms for
+OAK and 50 ms for D455. Each queue holds at most 200 samples; stale, unbracketed
+and overflowed input is counted and never extrapolated. Orientation is unavailable;
+all-zero acceleration/angular-velocity covariance means unknown as specified by
+sensor_msgs/Imu. Raw independent motion topics remain available when enabled.
+Stereo and combined IMU readiness expire independently in Status.
+
+OAK's 16-message nonblocking IMU host queue drains one atomic snapshot per poll,
+at most 320 reports (16 × 10 paired entries × 2). D455 retains its 20-report bound.
+OAK XLink chunking is disabled, preserving the measured transport correction.
+The explicit OAK fixture preset uses `mono_exposure_us=20000`, `mono_iso=800`;
+both zero preserve auto exposure. Those settings do not establish moving-scene
+image quality. Legacy Off operation adds no stereo or interpolation work.
+
+`width=640,height=360` adds an aspect-preserving 30 Hz-or-lower RGB profile.
+For D455 it requires explicit `depth_width=640,depth_height=480`; the same native
+depth selection can accompany 720p RGB. Zero native-depth dimensions preserve
+the legacy matched native RGB/depth selection. Stereo requires native 640×480
+depth/IR concurrently, with no fallback profile. Published aligned depth has the
+RGB dimensions; native depth detail does not increase with that output grid.
+
 `~/frames` is the authoritative matched-pair interface. It contains two standard
 `sensor_msgs/Image` records, their matching `CameraInfo`, and metadata in one
 message. Consumers retain a const shared pointer or their own copy; they must not

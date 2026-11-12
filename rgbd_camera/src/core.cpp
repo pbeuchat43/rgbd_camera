@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul N. Beuchat. MIT License.
 #include "rgbd_camera/provider.hpp"
 #include <openssl/evp.h>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -24,8 +25,24 @@ void Config::validate() const {
   require(between(fps, 1, 60), "fps must be finite and within [1, 60]");
   require((width == 0 && height == 0) ||
           (width == 640 && height == (backend == "oak" ? 640 : 480)) ||
+          (width == 640 && height == 360 && fps <= 30) ||
           (width == 1280 && height == 720 && fps <= 30),
-          "choose the backend legacy dimensions or 1280x720 at no more than 30 Hz");
+          "choose legacy dimensions, 640x360 or 1280x720 (wide profiles at <=30 Hz)");
+  require((depth_width == 0 && depth_height == 0) ||
+          (backend == "realsense" && depth_width == 640 && depth_height == 480 && fps <= 30),
+          "explicit native depth is D455 640x480 at <=30 Hz");
+  require(backend != "realsense" || output_height() != 360 || depth_width == 640,
+          "D455 360p requires explicit 640x480 native depth");
+  require(!publish_stereo || (fps == 30 && (backend == "oak" ||
+          (native_depth_width() == 640 && native_depth_height() == 480))),
+          "stereo requires 30 Hz and D455 native depth/IR 640x480");
+  require(!combine_imu || (enable_imu && publish_stereo), "combined IMU requires IMU and stereo enabled");
+  require(!combine_imu || backend != "oak" || imu_rate_hz == 200, "OAK combined IMU requires the explicit 200 Hz preset");
+  require(imu_rate_hz == 0 || (enable_imu && backend == "oak" && (imu_rate_hz == 100 || imu_rate_hz == 200)),
+          "explicit IMU rate is OAK 100 or 200 Hz; zero retains backend selection");
+  require((mono_exposure_us == 0 && mono_iso == 0) ||
+          (backend == "oak" && publish_stereo && mono_exposure_us >= 1 && mono_exposure_us <= 30000 &&
+           mono_iso >= 100 && mono_iso <= 1600), "manual mono exposure requires OAK stereo, 1..30000 us and ISO 100..1600");
   require(between(pairing_tolerance_ms, 0.1, 50) && pairing_tolerance_ms < 500.0 / fps,
           "pairing_tolerance_ms must be in [0.1, 50] and below half a frame period");
   require(between(max_frame_age_ms, 10, 2000), "max_frame_age_ms must be in [10, 2000]");
@@ -38,10 +55,13 @@ void Config::validate() const {
   require(std::regex_match(optical_frame, frame_pattern), "invalid optical_frame");
   require(std::regex_match(imu_frame, frame_pattern) && imu_frame != optical_frame,
           "imu_frame must be valid and distinct from optical_frame");
+  require(std::regex_match(left_frame, frame_pattern) && std::regex_match(right_frame, frame_pattern) &&
+          left_frame != right_frame && left_frame != optical_frame && right_frame != optical_frame &&
+          left_frame != imu_frame && right_frame != imu_frame, "stereo frames must be valid and distinct");
 }
 
 void Geometry::validate() const {
-  require((width == 640 && (height == 640 || height == 480)) || (width == 1280 && height == 720),
+  require((width == 640 && (height == 640 || height == 480 || height == 360)) || (width == 1280 && height == 720),
           "unsupported geometry dimensions");
   for (auto value : k) require(std::isfinite(value), "nonfinite intrinsics");
   require(k[0] > 0 && k[4] > 0 && k[2] >= 0 && k[2] < width && k[5] >= 0 && k[5] < height,
@@ -49,6 +69,52 @@ void Geometry::validate() const {
   require(std::abs(k[1]) < 1e-6 && std::abs(k[3]) < 1e-6 && std::abs(k[6]) < 1e-6 &&
           std::abs(k[7]) < 1e-6 && std::abs(k[8] - 1) < 1e-6, "unsupported projection matrix");
   require(!calibration_id.empty(), "missing calibration identity");
+}
+
+void CameraModel::validate() const {
+  require(width == 640 && (height == 400 || height == 480), "unsupported stereo grid");
+  for (double x : k) require(std::isfinite(x), "nonfinite stereo intrinsics");
+  require(k[0] > 0 && k[4] > 0 && k[2] >= 0 && k[2] < width && k[5] >= 0 && k[5] < height &&
+          std::abs(k[1]) < 1e-6 && std::abs(k[3]) < 1e-6 && std::abs(k[6]) < 1e-6 &&
+          std::abs(k[7]) < 1e-6 && std::abs(k[8] - 1) < 1e-6, "invalid stereo intrinsics");
+  require(d.size() == 5 || d.size() == 8, "unsupported stereo distortion model");
+  for (double x : d) require(std::isfinite(x), "nonfinite stereo distortion");
+}
+void InternalExtrinsics::validate() const {
+  const auto valid = [](const RigidTransform& m) {
+    for (double x : m) require(std::isfinite(x), "nonfinite internal transform");
+    require(m[12] == 0 && m[13] == 0 && m[14] == 0 && m[15] == 1, "invalid homogeneous transform");
+    for (size_t r = 0; r < 3; ++r) for (size_t c = 0; c < 3; ++c) {
+      double dot = 0;
+      for (size_t k = 0; k < 3; ++k) dot += m[4*r+k] * m[4*c+k];
+      require(std::abs(dot - (r == c ? 1.0 : 0.0)) < 1e-3, "non-orthonormal internal rotation");
+    }
+    const double det = m[0]*(m[5]*m[10]-m[6]*m[9]) - m[1]*(m[4]*m[10]-m[6]*m[8]) + m[2]*(m[4]*m[9]-m[5]*m[8]);
+    require(std::abs(det - 1) < 1e-3, "internal rotation is not right handed");
+  };
+  for (const auto& m : rgb_from_camera) valid(m);
+  if (has_imu) valid(rgb_from_imu);
+}
+
+std::optional<std::string> StereoGate::admit(const StereoFrame& pair, int64_t now, int64_t max_age) {
+  require(!pair.calibration_id.empty(), "missing stereo calibration identity");
+  require(calibration_.empty() || pair.calibration_id == calibration_, "stereo calibration changed within session");
+  require(pair.received_ns > 0 && pair.received_ns <= now, "invalid stereo receipt clock");
+  for (size_t i = 0; i < 2; ++i) {
+    pair.cameras[i].validate();
+    require(pair.pixels[i].size() == size_t(pair.cameras[i].width)*pair.cameras[i].height, "invalid stereo image buffer");
+    require(pair.event_ns[i] > 0 && pair.event_ns[i] <= pair.received_ns && pair.midpoint_ns[i] > 0 &&
+            pair.midpoint_ns[i] <= pair.received_ns && pair.exposure_ns[i] >= 0 &&
+            pair.exposure_ns[i] <= 1000000000, "invalid stereo exposure timing");
+    require(pair.midpoint_ns[i] > last_ns_[i] && (!last_sequence_[i] || pair.sequence[i] > *last_sequence_[i]),
+            "stereo clock/sequence regressed or repeated");
+    if (last_sequence_[i]) gaps_ += pair.sequence[i] - *last_sequence_[i] - 1;
+    last_ns_[i] = pair.midpoint_ns[i]; last_sequence_[i] = pair.sequence[i];
+  }
+  calibration_ = pair.calibration_id;
+  if (std::abs(pair.midpoint_ns[0] - pair.midpoint_ns[1]) > 1000000) return "stereo_skew";
+  if (now - std::min(pair.midpoint_ns[0], pair.midpoint_ns[1]) > max_age) return "stale_stereo";
+  return std::nullopt;
 }
 
 int64_t monotonic_ns() {
