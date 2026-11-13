@@ -37,3 +37,10 @@ int64 last_combined_imu_ns
 uint64 combined_imu_samples
 uint64 combined_imu_rejected
 uint64 combined_imu_overflows
+string timestamp_policy
+string clock_state
+uint64 clock_discontinuities
+int64 last_clock_step_ns
+int64 clock_recovery_since_ns
+uint64 imu_clock_rejected
+uint64 image_clock_rejected

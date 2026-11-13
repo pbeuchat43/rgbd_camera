@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>rgbd_camera_interfaces</name><version>0.2.0</version>
+  <name>rgbd_camera_interfaces</name><version>0.3.0</version>
   <description>Versioned camera frame and motion association interfaces.</description>
   <maintainer email="pbeuchat@unimelb.edu.au">Paul N. Beuchat</maintainer>
   <license>MIT</license>

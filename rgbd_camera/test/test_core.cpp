@@ -24,6 +24,8 @@ Frame frame(uint64_t sequence = 1, int64_t stamp = 1000000000) {
 int main() {
   Config config;
   config.validate();
+  // Preserve the terminal-policy contract checks; recovery has separate tests.
+  config.timestamp_policy = "strict";
   check(config.output_width() == 640 && config.output_height() == 640);
   Config footage; footage.width = 1280; footage.height = 720; footage.fps = 30; footage.validate();
   footage.backend = "realsense"; footage.validate();

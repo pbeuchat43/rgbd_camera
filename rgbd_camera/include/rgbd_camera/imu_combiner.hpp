@@ -14,6 +14,7 @@ class ImuCombiner {
  public:
   explicit ImuCombiner(int64_t max_gap_ns);
   void push(const Motion& sample);
+  void reset_timing() { rejected_ += gyro_.size(); accel_.clear(); gyro_.clear(); last_ns_ = {}; }
   std::vector<CombinedMotion> drain(int64_t now_ns, int64_t max_age_ns);
   uint64_t rejected() const { return rejected_; }
   uint64_t overflows() const { return overflows_; }

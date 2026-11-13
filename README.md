@@ -32,7 +32,13 @@ See the [interface contract](docs/interface-v1.md),
 [build and verification guide](docs/verification.md).
 The [offline OAK clock mapper prototype](experiments/oak-clock-mapper/README.md)
 records timestamp-fault replay and its accuracy limits. It is not enabled in the
-camera; the production timestamp guards remain unchanged with DepthAI 3.12.1.
+camera. The default `timestamp_policy=recover` preserves SDK timestamps, drops
+and counts invalid mapped samples, and holds publication at an SDK clock
+discontinuity. After every enabled stream has been valid and fresh for two
+seconds, publication resumes with a new generation. `timestamp_policy=strict`
+stops on clock faults. Neither policy corrects SDK clock-estimation error.
+Camera interfaces 0.3.0 add persistent clock state and counters to Status;
+rebuild all readers and the estimator against the matching interface package.
 For ordinary use, the [D455 native 60 Hz recipe](docs/running-d455-60.md) covers
 camera-only operation and the camera-plus-detector composition, including IMU,
 standard images, pairing tolerance and the local DDS setup.

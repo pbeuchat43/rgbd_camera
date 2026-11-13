@@ -165,10 +165,10 @@ class OakProvider final : public Provider {
           // Initial SDK batches may not yet contain both requested reports.
           if (nanos(a.getTimestamp()) != 0)
             result.motion.push_back({MotionKind::Accelerometer, uint32_t(a.sequence), nanos(a.getTimestamp()),
-                                     received, {a.x, a.y, a.z}});
+                                     received, {a.x, a.y, a.z}, {nanos(a.getTimestampDevice()), nanos(a.getTimestamp())}});
           if (nanos(g.getTimestamp()) != 0)
             result.motion.push_back({MotionKind::Gyroscope, uint32_t(g.sequence), nanos(g.getTimestamp()),
-                                     received, {g.x, g.y, g.z}});
+                                     received, {g.x, g.y, g.z}, {nanos(g.getTimestampDevice()), nanos(g.getTimestamp())}});
         }
       }
     }
@@ -180,6 +180,7 @@ class OakProvider final : public Provider {
         auto image = std::dynamic_pointer_cast<dai::ImgFrame>((*group)[i == 0 ? "left" : "right"]);
         require(image && image->getType() == dai::ImgFrame::Type::RAW8 && image->getSequenceNum() >= 0, "invalid OAK stereo image");
         pair->sequence[i] = image->getSequenceNum(); pair->event_ns[i] = nanos(image->getTimestamp());
+        pair->clocks[i] = {nanos(image->getTimestampDevice()), pair->event_ns[i]};
         pair->midpoint_ns[i] = nanos(image->getTimestamp(dai::CameraExposureOffset::MIDDLE));
         pair->exposure_ns[i] = std::chrono::duration_cast<std::chrono::nanoseconds>(image->getExposureTime()).count();
         auto& model = pair->cameras[i]; model.width = 640; model.height = 400;
@@ -210,6 +211,8 @@ class OakProvider final : public Provider {
       frame->exposure_midpoint_ns = nanos(rgb->getTimestamp(dai::CameraExposureOffset::MIDDLE));
       frame->exposure_duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(rgb->getExposureTime()).count();
       frame->depth_acquisition_ns = nanos(depth->getTimestamp()); frame->received_ns = received;
+      frame->clocks = {{{nanos(rgb->getTimestampDevice()), frame->acquisition_ns},
+                        {nanos(depth->getTimestampDevice()), frame->depth_acquisition_ns}}};
       frame->geometry.width = width_; frame->geometry.height = height_;
       frame->geometry.k = intrinsics(*rgb, width_, height_);
       const auto depth_k = intrinsics(*depth, width_, height_);

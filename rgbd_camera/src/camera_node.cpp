@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul N. Beuchat. MIT License.
 #include "rgbd_camera/camera_node.hpp"
 #include "rgbd_camera/odometry_output.hpp"
+#include "rgbd_camera/clock_recovery.hpp"
 #include <rgbd_camera_interfaces/msg/frame.hpp>
 #include <rgbd_camera_interfaces/msg/motion.hpp>
 #include <rgbd_camera_interfaces/msg/status.hpp>
@@ -58,6 +59,8 @@ class CameraNode::Implementation {
     config_.publish_images = setting<bool>(node, "publish_images", false, "Also publish standard RGB/depth topics (copies)");
     config_.publish_stereo = setting<bool>(node, "publish_stereo", false, "Export calibrated 30 Hz mono stereo from the sole device session");
     config_.combine_imu = setting<bool>(node, "combine_imu", false, "Interpolate acceleration at gyro timestamps with bounded brackets");
+    config_.timestamp_policy = setting<std::string>(node, "timestamp_policy", "recover",
+        "SDK timestamps: recover drops invalid samples and restarts timing generations; strict stops on clock faults");
     config_.imu_rate_hz = setting<int>(node, "imu_rate_hz", 0, "OAK raw rate request 100/200; zero preserves backend defaults");
     config_.mono_exposure_us = setting<int>(node, "mono_exposure_us", 0, "OAK stereo manual exposure; zero preserves auto exposure");
     config_.mono_iso = setting<int>(node, "mono_iso", 0, "OAK stereo manual ISO paired with mono_exposure_us");
@@ -85,6 +88,7 @@ class CameraNode::Implementation {
       gyro_standard_ = node.create_publisher<sensor_msgs::msg::Imu>("~/imu/gyro", rclcpp::SensorDataQoS().keep_last(4));
     }
     status_.state = "starting"; status_.imu_enabled = config_.enable_imu;
+    status_.timestamp_policy = config_.timestamp_policy; status_.clock_state = "stable";
     status_.imu_state = config_.enable_imu ? "starting" : "disabled";
     status_.stereo_enabled = config_.publish_stereo;
     status_.stereo_state = config_.publish_stereo ? "starting" : "disabled";
@@ -207,8 +211,10 @@ class CameraNode::Implementation {
         status_.clock_domain = identity_.clock_domain; status_.backend = identity_.backend;
         status_.usb_speed = identity_.usb_speed; status_.imu_sensor = identity_.imu_sensor;
       }
-      PairGate pairs(config_); MotionGate motion(identity_.imu_future_tolerance_ns);
-      StereoGate stereo;
+      PairGate pairs(config_); MotionGate motion(identity_.imu_future_tolerance_ns, config_.timestamp_policy == "recover");
+      StereoGate stereo(config_.timestamp_policy == "recover");
+      ClockRecovery clock(config_, identity_.imu_future_tolerance_ns);
+      uint64_t clock_epoch = 0, held_motion = 0, held_images = 0;
       std::unique_ptr<ImuCombiner> combiner;
       if (config_.combine_imu) combiner = std::make_unique<ImuCombiner>(config_.backend == "oak" ? 10000000 : 50000000);
       int64_t last_raw = 0;
@@ -216,6 +222,30 @@ class CameraNode::Implementation {
         auto products = provider_->poll();
         const auto now = monotonic_ns();
         if (products.motion.size() > (config_.backend == "oak" ? 320u : 20u)) throw std::runtime_error("provider exceeded motion batch bound");
+        if (products.frame) {
+          last_raw = now;
+          std::lock_guard<std::mutex> guard(mutex_);
+          ++status_.pairs_received; status_.last_pair_received_ns = products.frame->received_ns;
+        }
+        const bool hold = clock.inspect(products, now);
+        if (clock.discontinuities() != clock_epoch) {
+          clock_epoch = clock.discontinuities();
+          identity_.generation = read_identifier("/proc/sys/kernel/random/uuid");
+          pairs.reset_timing(); motion.reset_timing(); stereo.reset_timing();
+          if (combiner) combiner->reset_timing();
+          if (odometry_output_) odometry_output_->start(identity_);
+          std::lock_guard<std::mutex> guard(mutex_);
+          status_.generation = identity_.generation;
+          status_.last_acquisition_ns = status_.last_accel_ns = status_.last_gyro_ns = 0;
+          status_.last_stereo_ns = status_.last_combined_imu_ns = 0;
+        }
+        if (hold) {
+          held_motion += products.motion.size();
+          held_images += (products.frame ? 2 : 0) + (products.stereo ? 2 : 0);
+          products.frame.reset(); products.stereo.reset(); products.motion.clear();
+          std::lock_guard<std::mutex> guard(mutex_);
+          status_.state = "unavailable"; status_.detail = "clock_recovering";
+        }
         if (products.stereo) {
           if (!odometry_output_) throw std::runtime_error("provider emitted disabled stereo");
           const auto reason = stereo.admit(*products.stereo, now, int64_t(config_.max_frame_age_ms * 1e6));
@@ -232,12 +262,10 @@ class CameraNode::Implementation {
           status_.detail = products.diagnostic.substr(0,1024);
         }
         if (products.frame) {
-          last_raw = now;
           const auto reason = pairs.admit(*products.frame, now);
           {
             std::lock_guard<std::mutex> guard(mutex_);
-            ++status_.pairs_received; status_.sequence_gaps = pairs.gaps();
-            status_.last_pair_received_ns = products.frame->received_ns;
+            status_.sequence_gaps = pairs.gaps();
             status_.last_skew_ns = products.frame->depth_acquisition_ns - products.frame->acquisition_ns;
             status_.detail = reason.value_or(products.diagnostic.substr(0,1024));
             if (reason) {
@@ -266,6 +294,15 @@ class CameraNode::Implementation {
           status_.combined_imu_samples += combined.size();
           if (!combined.empty()) status_.last_combined_imu_ns = combined.back().gyro.acquisition_ns;
           status_.combined_imu_rejected = combiner->rejected(); status_.combined_imu_overflows = combiner->overflows();
+        }
+        {
+          std::lock_guard<std::mutex> guard(mutex_);
+          status_.clock_state = clock.recovering() ? "recovering" : "stable";
+          status_.clock_discontinuities = clock.discontinuities();
+          status_.last_clock_step_ns = clock.last_step_ns();
+          status_.clock_recovery_since_ns = clock.recovering() ? clock.since_ns() : 0;
+          status_.imu_clock_rejected = held_motion + motion.clock_rejected();
+          status_.image_clock_rejected = held_images + pairs.clock_rejected() + stereo.clock_rejected();
         }
         if ((!last_raw && now - started > config_.startup_timeout_s * 1e9) ||
             (last_raw && now - last_raw > config_.stall_timeout_s * 1e9))

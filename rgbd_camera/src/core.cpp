@@ -21,6 +21,7 @@ bool between(double value, double low, double high) {
 }
 
 void Config::validate() const {
+  require(timestamp_policy == "strict" || timestamp_policy == "recover", "timestamp_policy must be strict or recover");
   require(backend == "oak" || backend == "realsense", "backend must be oak or realsense");
   require(between(fps, 1, 60), "fps must be finite and within [1, 60]");
   require((width == 0 && height == 0) ||
@@ -103,11 +104,15 @@ std::optional<std::string> StereoGate::admit(const StereoFrame& pair, int64_t no
   for (size_t i = 0; i < 2; ++i) {
     pair.cameras[i].validate();
     require(pair.pixels[i].size() == size_t(pair.cameras[i].width)*pair.cameras[i].height, "invalid stereo image buffer");
-    require(pair.event_ns[i] > 0 && pair.event_ns[i] <= pair.received_ns && pair.midpoint_ns[i] > 0 &&
+    require(pair.exposure_ns[i] >= 0 && pair.exposure_ns[i] <= 1000000000, "invalid stereo exposure duration");
+    require(!last_sequence_[i] || pair.sequence[i] > *last_sequence_[i], "stereo sequence regressed or repeated");
+    const bool clock_valid = pair.event_ns[i] > 0 && pair.event_ns[i] <= pair.received_ns && pair.midpoint_ns[i] > 0 &&
             pair.midpoint_ns[i] <= pair.received_ns && pair.exposure_ns[i] >= 0 &&
-            pair.exposure_ns[i] <= 1000000000, "invalid stereo exposure timing");
-    require(pair.midpoint_ns[i] > last_ns_[i] && (!last_sequence_[i] || pair.sequence[i] > *last_sequence_[i]),
-            "stereo clock/sequence regressed or repeated");
+            pair.exposure_ns[i] <= 1000000000 && pair.midpoint_ns[i] > last_ns_[i];
+    if (!clock_valid && recover_) { clock_rejected_ += 2; return "invalid_stereo_clock"; }
+    require(clock_valid, "invalid stereo exposure timing or clock regression");
+  }
+  for (size_t i = 0; i < 2; ++i) {
     if (last_sequence_[i]) gaps_ += pair.sequence[i] - *last_sequence_[i] - 1;
     last_ns_[i] = pair.midpoint_ns[i]; last_sequence_[i] = pair.sequence[i];
   }
@@ -148,23 +153,28 @@ std::optional<std::string> PairGate::admit(const Frame& frame, int64_t now_ns) {
                         geometry_->calibration_id == frame.geometry.calibration_id,
                         "geometry changed; explicit new session required");
   else geometry_ = frame.geometry;
-  require(frame.acquisition_ns > 0 && frame.depth_acquisition_ns > 0 &&
+  require(frame.received_ns > 0 && frame.received_ns <= now_ns, "invalid host receipt clock");
+  const bool clock_valid = frame.acquisition_ns > 0 && frame.depth_acquisition_ns > 0 &&
           frame.acquisition_ns <= frame.received_ns && frame.depth_acquisition_ns <= frame.received_ns &&
-          frame.received_ns <= now_ns, "invalid acquisition clock mapping");
-  require(frame.acquisition_ns > last_rgb_ns_ && frame.depth_acquisition_ns > last_depth_ns_,
-          "acquisition clock regressed or repeated");
+          frame.acquisition_ns > last_rgb_ns_ && frame.depth_acquisition_ns > last_depth_ns_;
   const auto exposure_valid = [&](int64_t midpoint, int64_t duration) {
     return midpoint >= 0 && midpoint <= frame.received_ns && duration >= 0 &&
         duration <= 1000000000 && (duration == 0 || midpoint > 0);
   };
-  require(exposure_valid(frame.exposure_midpoint_ns, frame.exposure_duration_ns) &&
-          exposure_valid(frame.depth_exposure_midpoint_ns, frame.depth_exposure_duration_ns),
-          "invalid exposure timing");
+  require(frame.exposure_duration_ns >= 0 && frame.exposure_duration_ns <= 1000000000 &&
+          frame.depth_exposure_duration_ns >= 0 && frame.depth_exposure_duration_ns <= 1000000000,
+          "invalid exposure duration");
   if (last_sequence_) {
     require(frame.sequence > *last_sequence_ && frame.depth_sequence > *last_depth_sequence_,
             "image sequence regressed or repeated");
-    gaps_ += frame.sequence - *last_sequence_ - 1;
   }
+  const bool exposure_clock_valid = exposure_valid(frame.exposure_midpoint_ns, frame.exposure_duration_ns) &&
+    exposure_valid(frame.depth_exposure_midpoint_ns, frame.depth_exposure_duration_ns);
+  if ((!clock_valid || !exposure_clock_valid) && config_.timestamp_policy == "recover") {
+    clock_rejected_ += 2; return "invalid_pair_clock";
+  }
+  require(clock_valid && exposure_clock_valid, "invalid acquisition/exposure clock mapping or regression");
+  if (last_sequence_) gaps_ += frame.sequence - *last_sequence_ - 1;
   last_sequence_ = frame.sequence; last_depth_sequence_ = frame.depth_sequence;
   last_rgb_ns_ = frame.acquisition_ns; last_depth_ns_ = frame.depth_acquisition_ns;
   if (std::abs(frame.depth_acquisition_ns - frame.acquisition_ns) > config_.pairing_tolerance_ms * 1e6)
@@ -174,12 +184,15 @@ std::optional<std::string> PairGate::admit(const Frame& frame, int64_t now_ns) {
   return std::nullopt;
 }
 
-MotionGate::MotionGate(int64_t future_tolerance_ns) : future_tolerance_ns_(future_tolerance_ns) {
+MotionGate::MotionGate(int64_t future_tolerance_ns, bool recover) : recover_(recover), future_tolerance_ns_(future_tolerance_ns) {
   require(future_tolerance_ns >= 0 && future_tolerance_ns <= 5000000, "invalid IMU future tolerance");
 }
 bool MotionGate::admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns) {
   const auto index = sample.kind == MotionKind::Accelerometer ? 0 : 1;
   for (auto value : sample.xyz) require(std::isfinite(value), "nonfinite IMU sample");
+  require(sample.received_ns > 0 && sample.received_ns <= now_ns, "invalid host receipt clock");
+  if (recover_ && (sample.acquisition_ns <= 0 || sample.acquisition_ns-sample.received_ns > future_tolerance_ns_ ||
+                   sample.acquisition_ns < last_ns_[index])) { ++clock_rejected_; return false; }
   if (!(sample.acquisition_ns > 0 && sample.received_ns > 0 &&
         sample.acquisition_ns - sample.received_ns <= future_tolerance_ns_ &&
         sample.received_ns <= now_ns)) {

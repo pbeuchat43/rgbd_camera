@@ -23,6 +23,7 @@ struct Config {
   bool publish_images = false;
   bool publish_stereo = false;
   bool combine_imu = false;
+  std::string timestamp_policy = "recover";  // SDK times: recover or strict (stop).
   int imu_rate_hz = 0;  // Zero keeps the backend's legacy rate selection.
   int mono_exposure_us = 0, mono_iso = 0;  // OAK only; zero keeps auto exposure.
   std::string optical_frame = "oak_rgb_optical_frame";
@@ -49,6 +50,12 @@ struct CameraModel {
   std::vector<double> d;
   void validate() const;
 };
+// Internal SDK observation, before exposure-offset conversion. Zero device time
+// means the SDK does not expose a raw clock for this stream (D455 RSUSB IMU).
+// These diagnostics never replace acquisition timestamps in published products.
+struct ClockReading {
+  int64_t device_ns = 0, sdk_ns = 0;
+};
 struct StereoFrame {
   std::array<uint64_t, 2> sequence{};
   std::array<int64_t, 2> event_ns{}, midpoint_ns{}, exposure_ns{};
@@ -57,6 +64,7 @@ struct StereoFrame {
   std::array<std::vector<uint8_t>, 2> pixels;
   std::string calibration_id;
   bool rectified = false;
+  std::array<ClockReading, 2> clocks{};
 };
 
 struct Geometry {
@@ -86,6 +94,7 @@ struct Frame {
   Geometry geometry;
   // Owned buffers: SDK storage is never retained/reused underneath a consumer.
   std::vector<uint8_t> bgr, depth_le;
+  std::array<ClockReading, 2> clocks{};
 };
 
 enum class MotionKind { Accelerometer, Gyroscope };
@@ -94,6 +103,7 @@ struct Motion {
   uint64_t sequence;
   int64_t acquisition_ns, received_ns;
   std::array<double, 3> xyz;
+  ClockReading clock{};
 };
 
 struct Products {
@@ -105,13 +115,18 @@ struct Products {
 
 class StereoGate {
  public:
+  explicit StereoGate(bool recover = false) : recover_(recover) {}
   std::optional<std::string> admit(const StereoFrame& pair, int64_t now_ns, int64_t max_age_ns);
   uint64_t gaps() const { return gaps_; }
+  uint64_t clock_rejected() const { return clock_rejected_; }
+  void reset_timing() { last_ns_ = {}; last_sequence_ = {}; }
  private:
+  bool recover_;
   std::array<int64_t, 2> last_ns_{};
   std::array<std::optional<uint64_t>, 2> last_sequence_;
   std::string calibration_;
   uint64_t gaps_ = 0;
+  uint64_t clock_rejected_ = 0;
 };
 
 class Provider {
@@ -141,24 +156,31 @@ class PairGate {
   explicit PairGate(Config config);
   std::optional<std::string> admit(const Frame& frame, int64_t now_ns);
   uint64_t gaps() const { return gaps_; }
+  uint64_t clock_rejected() const { return clock_rejected_; }
+  void reset_timing() { last_sequence_.reset(); last_depth_sequence_.reset(); last_rgb_ns_ = last_depth_ns_ = 0; }
  private:
   Config config_;
   std::optional<uint64_t> last_sequence_, last_depth_sequence_;
   int64_t last_rgb_ns_ = 0, last_depth_ns_ = 0;
   std::optional<Geometry> geometry_;
   uint64_t gaps_ = 0;
+  uint64_t clock_rejected_ = 0;
 };
 
 // Deduplicates repeated IMU reports; each sensor maintains independent progress.
 class MotionGate {
  public:
-  explicit MotionGate(int64_t future_tolerance_ns = 0);
+  explicit MotionGate(int64_t future_tolerance_ns = 0, bool recover = false);
   bool admit(const Motion& sample, int64_t now_ns, int64_t max_age_ns);
   uint64_t gaps() const { return gaps_; }
+  uint64_t clock_rejected() const { return clock_rejected_; }
+  void reset_timing() { last_ns_ = {}; last_sequence_ = {}; }
  private:
+  bool recover_;
   int64_t future_tolerance_ns_;
   std::array<int64_t, 2> last_ns_{};
   std::array<std::optional<uint64_t>, 2> last_sequence_;
   uint64_t gaps_ = 0;
+  uint64_t clock_rejected_ = 0;
 };
 }  // namespace rgbd_camera

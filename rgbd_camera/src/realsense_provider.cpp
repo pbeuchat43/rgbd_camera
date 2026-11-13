@@ -24,6 +24,7 @@ std::string info(const rs2::device& device, rs2_camera_info field) {
 struct VideoSample {
   rs2::video_frame frame;
   int64_t acquired = 0, received = 0;
+  ClockReading clock;
 };
 struct SensorSession {
   rs2::sensor sensor;
@@ -41,8 +42,9 @@ class RealsenseProvider final : public Provider {
     native_fps_ = config.fps > 30 ? 60 : 30;
     {
       std::lock_guard<std::mutex> guard(mutex_);
-      error_.clear(); last_acquired_.fill(0); future_motion_time_ = rejected_motion_time_ = 0;
+      error_.clear(); last_acquired_.fill(0); future_motion_time_ = 0;
       last_sequence_.fill(std::nullopt); next_output_ns_ = 0;
+      raw_previous_.fill(std::nullopt); raw_unwrapped_.fill(0);
       clock_samples_valid_.fill(false); clock_ready_ = false; stable_since_ns_ = 0;
       received_samples_.fill(0); last_received_.fill(0); domains_.fill(-1); invalid_clocks_.fill(0);
       colors_.clear(); depths_.clear(); motion_.clear(); infrared_ = {}; active_.fill(false);
@@ -183,9 +185,8 @@ class RealsenseProvider final : public Provider {
     {
       std::lock_guard<std::mutex> guard(mutex_);
       if (!error_.empty()) throw std::runtime_error(error_);
-      if (future_motion_time_ || rejected_motion_time_)
-        products.diagnostic = "realsense_imu_future_timestamps_admitted=" + std::to_string(future_motion_time_) +
-          ", rejected_over_tolerance=" + std::to_string(rejected_motion_time_);
+      if (future_motion_time_)
+        products.diagnostic = "realsense_imu_small_future_estimates=" + std::to_string(future_motion_time_);
       if (!clock_ready_) {
         products.diagnostic = "realsense_clock_starting stable_ms=" +
           std::to_string(stable_since_ns_ ? (monotonic_ns()-stable_since_ns_)/1000000 : 0);
@@ -225,6 +226,7 @@ class RealsenseProvider final : public Provider {
       const VideoSample* samples[] = {&*left, &*right};
       for (size_t i = 0; i < 2; ++i) {
         const auto& s = *samples[i]; pair->sequence[i] = s.frame.get_frame_number(); pair->midpoint_ns[i] = s.acquired;
+        pair->clocks[i] = s.clock;
         pair->event_ns[i] = s.acquired; // Preserve the provider's D455 midpoint convention.
         if (s.frame.supports_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE))
           pair->exposure_ns[i] = s.frame.get_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE)*1000;
@@ -240,6 +242,7 @@ class RealsenseProvider final : public Provider {
       auto output = std::make_unique<Frame>();
       output->sequence = color->frame.get_frame_number(); output->depth_sequence = depth->frame.get_frame_number();
       output->acquisition_ns = color->acquired; output->depth_acquisition_ns = depth->acquired;
+      output->clocks = {color->clock, depth->clock};
       output->exposure_midpoint_ns = color->acquired;
       output->depth_exposure_midpoint_ns = depth->acquired;
       if (color->frame.supports_frame_metadata(RS2_FRAME_METADATA_ACTUAL_EXPOSURE))
@@ -289,14 +292,23 @@ class RealsenseProvider final : public Provider {
         return;
       }
       int64_t acquired;
+      ClockReading clock;
       if (!is_motion) {
         require(frame.supports_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP) &&
                 frame.supports_frame_metadata(RS2_FRAME_METADATA_SENSOR_TIMESTAMP), "RealSense exposure timestamp metadata unavailable");
-        acquired = realsense_video_time_ns(frame.get_timestamp(),identity_.unix_offset_ns,
-          uint32_t(frame.get_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP)),
+        const auto raw = uint32_t(frame.get_frame_metadata(RS2_FRAME_METADATA_FRAME_TIMESTAMP));
+        if (raw_previous_[slot]) {
+          const uint32_t delta = raw-*raw_previous_[slot];
+          require(delta > 0 && delta < 0x80000000U, "RealSense raw device clock regressed or repeated");
+          raw_unwrapped_[slot] += int64_t(delta)*1000;
+        } else raw_unwrapped_[slot] = int64_t(raw)*1000;
+        raw_previous_[slot] = raw;
+        clock = {raw_unwrapped_[slot], realsense_motion_time_ns(frame.get_timestamp(),identity_.unix_offset_ns)};
+        acquired = realsense_video_time_ns(frame.get_timestamp(),identity_.unix_offset_ns, raw,
           uint32_t(frame.get_frame_metadata(RS2_FRAME_METADATA_SENSOR_TIMESTAMP)));
       } else acquired = realsense_motion_time_ns(frame.get_timestamp(),identity_.unix_offset_ns);
       const auto sequence = frame.get_frame_number();
+      require(!last_sequence_[slot] || sequence > *last_sequence_[slot], "RealSense raw sequence regressed or repeated");
       // An individual callback may arrive slightly before the SDK clock estimate.
       // Video startup stays strict; after startup allow the same small mapping
       // error as IMU. PairGate still requires both image timestamps to precede
@@ -307,7 +319,7 @@ class RealsenseProvider final : public Provider {
       const bool within_tolerance = acquired <= received+future_tolerance;
       const bool valid_clock = increasing && within_tolerance;
       if (!valid_clock) ++invalid_clocks_[slot];
-      if (clock_ready_ && (!increasing || (!is_motion && !within_tolerance)))
+      if (clock_ready_ && config_.timestamp_policy == "strict" && (!increasing || !within_tolerance))
         throw std::runtime_error("RealSense clock/sequence fault on " + std::string(rs2_stream_to_string(stream)) +
           ": acquisition_minus_receipt_ns=" + std::to_string(acquired-received) +
           ", acquisition_delta_ns=" + std::to_string(acquired-last_acquired_[slot]) +
@@ -325,11 +337,9 @@ class RealsenseProvider final : public Provider {
         if (received-stable_since_ns_ < 2000000000) return;
         clock_ready_ = true;
       }
-      // A monotonic IMU estimate outside its declared clock budget is omitted;
-      // it does not invalidate otherwise admissible RGB/depth. The adapter's
-      // independent IMU freshness status expires if valid samples stop.
-      if (is_motion && !within_tolerance) { ++rejected_motion_time_; return; }
-      if (is_motion && acquired > received) ++future_motion_time_;
+      // Recovery admission happens in the shared gate after dequeue; rejected
+      // mapped timestamps cannot poison its accepted watermark.
+      if (is_motion && within_tolerance && acquired > received) ++future_motion_time_;
       if (!is_motion) {
         auto video = frame.as<rs2::video_frame>();
         const auto width = slot == 0 ? config_.output_width() : slot == 1 ? config_.native_depth_width() : 640;
@@ -339,7 +349,7 @@ class RealsenseProvider final : public Provider {
                 frame.get_profile().format() == format && frame.get_profile().fps() == native_fps_, "RealSense video profile changed");
         auto& queue = slot == 0 ? colors_ : slot == 1 ? depths_ : infrared_[slot-4];
         if (queue.size() == 2) queue.pop_front();
-        queue.push_back({video,acquired,received});
+        queue.push_back({video,acquired,received,clock});
       } else {
         const auto xyz = frame.as<rs2::motion_frame>().get_motion_data();
         if (motion_.size() == 20) motion_.pop_front();
@@ -362,7 +372,7 @@ class RealsenseProvider final : public Provider {
   std::mutex mutex_;
   bool stopping_ = false;
   std::string error_;
-  uint64_t future_motion_time_ = 0, rejected_motion_time_ = 0;
+  uint64_t future_motion_time_ = 0;
   std::array<bool,6> clock_samples_valid_{}, active_{};
   bool clock_ready_ = false;
   std::array<int64_t,6> last_acquired_{};
@@ -370,6 +380,8 @@ class RealsenseProvider final : public Provider {
   std::array<uint64_t,6> received_samples_{}, invalid_clocks_{};
   std::array<int,6> domains_{};
   std::array<std::optional<uint64_t>,6> last_sequence_;
+  std::array<std::optional<uint32_t>,6> raw_previous_;
+  std::array<int64_t,6> raw_unwrapped_{};
   int64_t stable_since_ns_ = 0, next_output_ns_ = 0;
   std::deque<VideoSample> colors_, depths_;
   std::array<std::deque<VideoSample>, 2> infrared_;
