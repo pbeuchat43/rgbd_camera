@@ -1,11 +1,11 @@
 # Camera interface v1
 
 The `rgbd_camera_interfaces` ROS package is independent of the SDK and provider.
-Package 0.2.0 updates `CaptureReference` to schema 2 and adds depth exposure
-timing to `Frame`. All consumers, including detector, overlays and recorder,
-must rebuild together; ROS wire compatibility with package 0.1.x is not retained.
+Package 0.3.0 adds clock recovery state and rejection counters to `Status`.
+It retains the schema 2 `CaptureReference` and depth exposure timing introduced
+in 0.2.0. All consumers, including detector, overlays and recorder,
+must rebuild together; ROS wire compatibility with earlier packages is not retained.
 `Motion` embeds schema 2 but leaves exposure fields zero (not applicable).
-`Status` retains its existing semantics.
 The reusable C++ `Provider` API is in `rgbd_camera/provider.hpp`; it has no ROS
 or camera SDK types. One owner calls start, polls bounded products, then stops.
 Providers must own their returned storage and stop on terminal faults.
@@ -47,6 +47,7 @@ may subscribe/unsubscribe; they cannot modify exposure, geometry or capture rate
 | `startup_timeout_s` | 30.0 | 5–120 s first raw-pair deadline; synchronous SDK open cannot be preempted |
 | `stall_timeout_s` | 2.0 | 1–30 s, greater than one frame period; no raw pair progress |
 | `publish_images` | false | Enable the extra standard image/CameraInfo branches |
+| `timestamp_policy` | `recover` | Drop and count inadmissible mapped timestamps, and recover mapping discontinuities with a new generation; `strict` makes these faults terminal |
 | `enable_imu` | false | Enable independent accel/gyro; OAK requests 100 Hz each, D455 selects each sensor's lowest advertised rate up to 400 Hz |
 | `optical_frame` | `<backend>_rgb_optical_frame` | Rectified virtual RGB optical coordinate frame |
 | `imu_frame` | `oak_imu_native_frame` or `realsense_imu_frame` | Backend-declared IMU axes/origin, distinct from optical frame |
