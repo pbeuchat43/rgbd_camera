@@ -30,6 +30,9 @@ declare the allowance. This policy is not a measured clock accuracy guarantee.
 See the [interface contract](docs/interface-v1.md),
 [first slice and acceptance](docs/first-slice.md), and
 [build and verification guide](docs/verification.md).
+The [offline OAK clock mapper prototype](experiments/oak-clock-mapper/README.md)
+records timestamp-fault replay and its accuracy limits. It is not enabled in the
+camera; the production timestamp guards remain unchanged with DepthAI 3.12.1.
 For ordinary use, the [D455 native 60 Hz recipe](docs/running-d455-60.md) covers
 camera-only operation and the camera-plus-detector composition, including IMU,
 standard images, pairing tolerance and the local DDS setup.
