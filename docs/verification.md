@@ -78,6 +78,12 @@ deduplication and calibration identity. The adapter test uses an injected synthe
 provider in a real intra-process ROS graph; it checks read-only parameters,
 association fields, IMU unavailable fields, freshness, skew recovery, and simulated
 device loss/cleanup. It does not establish hardware behavior.
+The clock recovery tests cover rejected estimates without advancing accepted
+watermarks, positive and negative SDK mapping steps, two seconds of stable
+observations, raw-device resets and strict-policy failure. A composed synthetic
+provider check verifies recovery with a new generation and one provider open,
+including combined-IMU reset and continued publication. These tests do not
+establish SDK clock accuracy or observed hardware recovery.
 The optional RealSense geometry test uses synthetic nonidentity rotation and
 translation, depth units, occlusion collisions, rectification with nonzero
 distortion, malformed calibration, epoch conversion and microsecond timestamp

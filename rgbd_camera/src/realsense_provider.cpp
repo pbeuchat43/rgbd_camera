@@ -308,7 +308,11 @@ class RealsenseProvider final : public Provider {
           uint32_t(frame.get_frame_metadata(RS2_FRAME_METADATA_SENSOR_TIMESTAMP)));
       } else acquired = realsense_motion_time_ns(frame.get_timestamp(),identity_.unix_offset_ns);
       const auto sequence = frame.get_frame_number();
-      require(!last_sequence_[slot] || sequence > *last_sequence_[slot], "RealSense raw sequence regressed or repeated");
+      // SDK frame numbering can restart while metadata/counter sources settle.
+      // The unpublished startup gate already restarts its two-second window on
+      // non-increasing samples. Once streaming, a reset remains terminal.
+      require(!clock_ready_ || !last_sequence_[slot] || sequence > *last_sequence_[slot],
+              "RealSense raw sequence regressed or repeated");
       // An individual callback may arrive slightly before the SDK clock estimate.
       // Video startup stays strict; after startup allow the same small mapping
       // error as IMU. PairGate still requires both image timestamps to precede

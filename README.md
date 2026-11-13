@@ -78,10 +78,10 @@ encoding and deployment migration remain separate responsibilities.
 
 Canonical repository: https://github.com/pbeuchat43/rgbd_camera.
 `main` is the verified baseline and `dev` the development branch.
-Version: 0.4.0 (development milestone, not a stable platform release).
+Version: 0.5.0 (development milestone, not a stable platform release).
 The [odometry input contract](docs/interface-v1.md#optional-odometry-input-package-040)
 adds explicit exposure timing, optional stereo and bounded gyro-time combined IMU.
-It requires a coordinated rebuild with detector 0.3.0 and recorder 0.2.0.
+Camera interfaces 0.3.0 require rebuilding the detector, recorder and VIO together.
 
 MIT License, copyright 2026 Paul N. Beuchat. See [NOTICE.md](NOTICE.md) for
 upstream references and their separate licensing.

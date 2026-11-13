@@ -26,6 +26,9 @@ The RealSense backend requires D455 (product ID `0B5C`), firmware `5.17.0.10`
 with librealsense `2.56.5`, and matching supported BGR8/Z16 profiles:
 640×480 at 30 Hz (60 Hz for output requests above 30 Hz), or 1280×720 at 30 Hz.
 An unavailable backend or native-rate profile fails explicitly.
+RealSense startup remains unpublished until all enabled streams have two seconds
+of valid, increasing clock and sequence observations. A startup frame-counter
+restart resets that window; a sequence regression after readiness is terminal.
 SDK exclusivity plus a per-user advisory lock prevent concurrent owners. Other
 software must also respect SDK exclusivity; the lock is not a cross-user security
 boundary. Shutdown releases the pipeline/device and lock. There is no automatic
