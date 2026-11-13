@@ -8,10 +8,10 @@ University of Melbourne MIT-licensed `oakd_gpu_cone_detector` at
 `camera_support.py`. Its attribution is retained in `LICENSE.third-party`.
 This repository does not distribute its detector or model weights.
 
-DepthAI is a separate dependency, pinned to version 3.9.0,
-commit `ac928141ef7750bf3082b5e1c319a115618660e7`.
+DepthAI is a separate dependency, pinned to version 3.12.1,
+commit `da14320483864f7cdabada9e70d4d6a2115eff9a`.
 Its source, examples and dependency licenses are maintained by Luxonis:
-https://github.com/luxonis/depthai-core/tree/v3.9.0.
+https://github.com/luxonis/depthai-core/tree/v3.12.1.
 
 Future cone integration must preserve the model's exact descriptor/hash and
 provenance. The legacy model records conflicting AGPL metadata and MIT blob

@@ -10,7 +10,7 @@ using the selected camera. Vehicle actuation is outside these checks.
 
 Required: Ubuntu 24.04 arm64, ROS 2 Jazzy (`rclcpp`, `rclcpp_components`,
 `sensor_msgs`, `rosidl_default_generators`, `ament_cmake`), C++17, CMake ≥3.20,
-OpenSSL development headers and colcon. OAK builds require DepthAI **3.9.0
+OpenSSL development headers and colcon. OAK builds require DepthAI **3.12.1
 exactly**. RealSense builds require librealsense **2.56.5 exactly** plus OpenCV
 core/imgproc. At least one backend must be enabled.
 No Python detector, TensorRT, CUDA or model weights are needed.
@@ -22,7 +22,7 @@ source /opt/ros/jazzy/setup.bash
 colcon build --packages-select rgbd_camera_interfaces
 ```
 
-Build DepthAI at `ac928141ef7750bf3082b5e1c319a115618660e7` in a separate prefix.
+Build DepthAI at `da14320483864f7cdabada9e70d4d6a2115eff9a` in a separate prefix.
 `tools/build_sdk.sh PREFIX` records the minimal SDK configuration used by this
 slice. It fetches dependencies into its build directory and installs only to
 PREFIX. It does not install apt packages or change the system SDK. The upstream

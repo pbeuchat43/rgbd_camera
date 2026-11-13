@@ -69,7 +69,7 @@ struct Geometry {
 
 struct Identity {
   std::string source_id, generation, clock_domain;
-  std::string backend = "depthai-3.9.0";
+  std::string backend = "depthai-3.12.1";
   std::string usb_speed, imu_sensor;
   std::string imu_axes = "sensor_native";
   int64_t unix_offset_ns = 0;

@@ -1,7 +1,7 @@
 # rgbd_camera
 
 Shared RGB-D acquisition for the research robot platform. Providers target
-OAK-D/RVC2 with DepthAI 3.9.0 and RealSense D455 firmware 5.17.0.10 with librealsense 2.56.5
+OAK-D/RVC2 with DepthAI 3.12.1 and RealSense D455 firmware 5.17.0.10 with librealsense 2.56.5
 on Ubuntu 24.04 arm64 / ROS 2 Jazzy.
 It provides a standalone executable and a composable C++ camera node. A detector,
 model, GPU runtime or web server is not required.
