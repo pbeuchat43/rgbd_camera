@@ -105,6 +105,13 @@ int main() {
     put(wide_depth,1279,719,1000,2560);
     aligned = native_wide.align_depth(wide_depth.data(),wide_depth.size(),2560);
     check(get(aligned,1279,719,2560) == 2000, "native 720p depth ray bounds failed");
+    cal = calibration(); cal.color.height = 360; cal.color.ppy = 180;
+    RealsenseGeometry low_height(cal);
+    std::vector<uint8_t> low_bgr(1920*360,77);
+    check(low_height.rectify_bgr(low_bgr.data(),low_bgr.size(),1920).size()==640*360*3,
+          "360p RGB bounds failed");
+    check(low_height.align_depth(padded_depth.data(),padded_depth.size(),1296).size()==640*360*2,
+          "native 480p depth to 360p RGB grid failed");
     cal = calibration(); cal.depth_to_color.rotation[0] = 2;
     rejects([&] { RealsenseGeometry bad(cal); }, "nonrigid transform accepted");
     cal = calibration(); cal.color.model = RS2_DISTORTION_FTHETA;

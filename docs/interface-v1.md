@@ -1,7 +1,11 @@
 # Camera interface v1
 
 The `rgbd_camera_interfaces` ROS package is independent of the SDK and provider.
-`Frame`, `Motion`, `CaptureReference` and `Status` are version 1 contracts.
+Package 0.3.0 adds clock recovery state and rejection counters to `Status`.
+It retains the schema 2 `CaptureReference` and depth exposure timing introduced
+in 0.2.0. All consumers, including detector, overlays and recorder,
+must rebuild together; ROS wire compatibility with earlier packages is not retained.
+`Motion` embeds schema 2 but leaves exposure fields zero (not applicable).
 The reusable C++ `Provider` API is in `rgbd_camera/provider.hpp`; it has no ROS
 or camera SDK types. One owner calls start, polls bounded products, then stops.
 Providers must own their returned storage and stop on terminal faults.
@@ -22,6 +26,9 @@ The RealSense backend requires D455 (product ID `0B5C`), firmware `5.17.0.10`
 with librealsense `2.56.5`, and matching supported BGR8/Z16 profiles:
 640×480 at 30 Hz (60 Hz for output requests above 30 Hz), or 1280×720 at 30 Hz.
 An unavailable backend or native-rate profile fails explicitly.
+RealSense startup remains unpublished until all enabled streams have two seconds
+of valid, increasing clock and sequence observations. A startup frame-counter
+restart resets that window; a sequence regression after readiness is terminal.
 SDK exclusivity plus a per-user advisory lock prevent concurrent owners. Other
 software must also respect SDK exclusivity; the lock is not a cross-user security
 boundary. Shutdown releases the pipeline/device and lock. There is no automatic
@@ -43,15 +50,61 @@ may subscribe/unsubscribe; they cannot modify exposure, geometry or capture rate
 | `startup_timeout_s` | 30.0 | 5–120 s first raw-pair deadline; synchronous SDK open cannot be preempted |
 | `stall_timeout_s` | 2.0 | 1–30 s, greater than one frame period; no raw pair progress |
 | `publish_images` | false | Enable the extra standard image/CameraInfo branches |
+| `timestamp_policy` | `recover` | Drop and count inadmissible mapped timestamps, and recover mapping discontinuities with a new generation; `strict` makes these faults terminal |
 | `enable_imu` | false | Enable independent accel/gyro; OAK requests 100 Hz each, D455 selects each sensor's lowest advertised rate up to 400 Hz |
 | `optical_frame` | `<backend>_rgb_optical_frame` | Rectified virtual RGB optical coordinate frame |
 | `imu_frame` | `oak_imu_native_frame` or `realsense_imu_frame` | Backend-declared IMU axes/origin, distinct from optical frame |
 
-`use_sim_time=true` is rejected for this physical provider. Exposure is the SDK
-default auto exposure; this slice does not expose exposure/projector controls or
-write device calibration, flash firmware, or change stored settings.
+`use_sim_time=true` is rejected for this physical provider. Exposure remains the
+SDK default auto exposure except for the explicit OAK stereo settings below.
+The provider does not write device calibration, flash firmware, change stored
+settings or expose projector controls.
 
 ## Images and exact association
+
+### Optional odometry input (package 0.4.0)
+
+`publish_stereo=true` exports mono8 `~/stereo/left/image` and
+`~/stereo/right/image`, matching `camera_info` topics and the atomic
+`~/stereo/capture` sidecar. Stereo is supported at 30 Hz only: raw OAK 640×400,
+or startup-validated rectified D455 640×480. Each image keeps its own actual
+exposure midpoint; the sidecar header is the later midpoint, mapped with the
+fixed session offset. It retains both source references and the stereo calibration
+fingerprint. The maximum admitted midpoint skew is 1 ms. Buffers are bounded;
+sequence gaps and rejected/stale pairs remain observable in Status.
+
+`left_frame` and `right_frame` default to `<backend>_left_optical_frame` and
+`<backend>_right_optical_frame`. The provider publishes measured internal static
+transforms from the existing RGB optical frame to stereo and enabled IMU frames.
+It does not publish robot mounting transforms or odometry TF. OAK EEPROM
+translation is converted from centimetres to metres. Raw stereo uses delivered
+intrinsics and distortion; D455 rectification requires matching K, zero D,
+identity relative rotation and a positive horizontal left-to-right baseline.
+Unsupported geometry fails explicitly; model names alone do not select rectification.
+
+`combine_imu=true` requires stereo and `enable_imu=true`. OAK additionally requires
+explicit `imu_rate_hz=200`; otherwise zero preserves legacy rate selection.
+The optional `~/imu/combined` sample keeps the gyro timestamp and interpolates
+only between bracketing acceleration samples. Bracket gaps are at most 10 ms for
+OAK and 50 ms for D455. Each queue holds at most 200 samples; stale, unbracketed
+and overflowed input is counted and never extrapolated. Orientation is unavailable;
+all-zero acceleration/angular-velocity covariance means unknown as specified by
+sensor_msgs/Imu. Raw independent motion topics remain available when enabled.
+Stereo and combined IMU readiness expire independently in Status.
+
+OAK's 16-message nonblocking IMU host queue drains one atomic snapshot per poll,
+at most 320 reports (16 × 10 paired entries × 2). D455 retains its 20-report bound.
+OAK XLink chunking is disabled, preserving the measured transport correction.
+The explicit OAK fixture preset uses `mono_exposure_us=20000`, `mono_iso=800`;
+both zero preserve auto exposure. Those settings do not establish moving-scene
+image quality. Legacy Off operation adds no stereo or interpolation work.
+
+`width=640,height=360` adds an aspect-preserving 30 Hz-or-lower RGB profile.
+For D455 it requires explicit `depth_width=640,depth_height=480`; the same native
+depth selection can accompany 720p RGB. Zero native-depth dimensions preserve
+the legacy matched native RGB/depth selection. Stereo requires native 640×480
+depth/IR concurrently, with no fallback profile. Published aligned depth has the
+RGB dimensions; native depth detail does not increase with that output grid.
 
 `~/frames` is the authoritative matched-pair interface. It contains two standard
 `sensor_msgs/Image` records, their matching `CameraInfo`, and metadata in one
@@ -76,8 +129,9 @@ tolerance are exposed to host diagnostics and discarded, instead of hiding all
 input progress. The host independently checks size, geometry, time, sequence,
 skew and age. Excess skew/age is recoverable rejection; it increments counters.
 Persistent rejection makes the accepted stream unavailable without closing the
-camera. Device/pipeline loss, invalid geometry, or clock/sequence regression are
-terminal. A process running is not proof of valid frame delivery.
+camera. Device/pipeline loss, invalid geometry, or a raw device clock/sequence
+reset are terminal. Mapped-clock recovery follows the policy below. A process
+running is not proof of valid frame delivery.
 
 D455 uses independent native color/depth streams at the selected dimensions:
 30 Hz for requests through 30 Hz, or 60 Hz for higher requests at 640×480 only.
@@ -120,6 +174,19 @@ External recording must record the bundle to preserve this complete contract.
 
 ## Clocks and freshness
 
+Schema 2 adds `exposure_midpoint_ns` and `exposure_duration_ns` in the capture
+reference, plus independent `depth_exposure_midpoint_ns` and
+`depth_exposure_duration_ns` in Frame. Values are signed nanoseconds; zero means
+unknown. Duration is nonnegative and at most one second; a known duration requires
+a known midpoint, and a known midpoint cannot exceed receipt. Existing
+`acquisition_ns`, depth pairing/skew and standard RGB-D headers retain their
+previous meaning. D455 acquisition already uses its SDK exposure midpoint; OAK
+preserves its legacy timestamp and supplies the explicit MIDDLE timestamp
+separately. OAK aligned-depth exposure is unknown until a documented sensor
+association is established; it is not copied from RGB or inferred from receipt.
+Consumers must preserve these fields atomically. Cone/pose association uses the
+explicit RGB midpoint when known, never a guessed offset from legacy event time.
+
 DepthAI maps device acquisition timestamps into host `steady_clock`. On the tested
 Linux platform this is monotonic time, labeled `linux_monotonic:<boot UUID>`.
 Nanoseconds remain int64, including ROS metadata. `received_ns` records host receipt
@@ -128,8 +195,8 @@ Device/host time synchronization error is not bounded by this slice.
 The SDK's continuously updated estimate can put a fast IMU report slightly after
 its host receipt. OAK therefore declares a 5 ms IMU admission allowance, preserving
 the reported acquisition timestamp. This is a policy cap, not a synchronization
-accuracy claim. Larger leads, nonpositive timestamps and clock regressions remain
-terminal for OAK; image admission remains strict. See
+accuracy claim. Larger leads, nonpositive timestamps and mapped regressions are
+omitted and counted in recovery mode; image timing limits are unchanged. See
 [Luxonis host-clock synchronization](https://docs.luxonis.com/software-v3/depthai/depthai-components/device#host-clock-syncing).
 
 D455 enables SDK `GLOBAL_TIME` on each participating sensor and waits for two
@@ -139,24 +206,52 @@ time into epoch milliseconds; the provider subtracts the session's fixed
 epoch-minus-monotonic offset. Required video metadata moves readout time to the
 reported exposure midpoint, handling the 32-bit microsecond wrap. Motion keeps
 its own sensor timestamp. Missing video timing metadata, domain changes after
-initialization, sequence/time regression, acquisition beyond the allowed clock checks or a host clock-offset
+initialization, a raw sequence/time reset, or a host clock-offset
 change exceeding 5 ms closes the session. The SDK's synchronization error and
 RGB/depth synchronization accuracy have no measured bound here. Fast IMU delivery
 can precede its SDK time estimate: samples estimated up to 5 ms after receipt are
 admitted without adjusting their timestamps. Larger, still increasing IMU
 estimates are individually rejected; IMU readiness expires if admissible samples
-stop, while valid RGB/depth can continue. Regressions and domain changes remain
-terminal. Each `Motion.future_tolerance_ns` declares this admission policy
+stop, while valid RGB/depth can continue. Mapped regressions are also omitted in
+recovery mode; domain changes remain terminal. Each `Motion.future_tolerance_ns` declares this admission policy
 (5000000 for both current backends); it is not a measured synchronization error bound.
 Motion consumers must allow acquisition ≤ receipt + future_tolerance_ns, preserve
 the original timestamp, and treat a permitted small negative age as fresh.
-A cumulative `realsense_imu_future_timestamps_admitted` note counts these samples
-at provider admission, before subsequent bounded-queue/transport loss;
-`rejected_over_tolerance` counts omitted IMU estimates. After
+A cumulative `realsense_imu_small_future_estimates` note counts estimates within
+the allowance at provider receipt, before shared admission and transport loss.
+The structured `imu_clock_rejected` counter counts clock-based omissions. After
 startup, individual image callbacks also tolerate up to 5 ms of clock-estimate
 lead; the completed image bundle still requires both acquisition timestamps to
 precede its combined receipt (the later individual receipt). Motion readers must rebuild for this
 added message field; `Frame` and `CaptureReference` wire definitions are unchanged.
+
+Camera interfaces 0.3.0 add `timestamp_policy`, `clock_state`,
+`clock_discontinuities`, `last_clock_step_ns`, `clock_recovery_since_ns`,
+`imu_clock_rejected` and `image_clock_rejected` to Status. All readers must rebuild.
+The startup-only `timestamp_policy` is `recover` by default; `strict` retains
+terminal mapped-clock checks and also stops on detected SDK discontinuities.
+Recovery preserves the SDK's timestamps and the existing admission limits.
+An omitted report never raises the admitted timestamp watermark. Counters count
+withheld report records or images, including those drained during a recovery;
+they are not estimates of losses elsewhere in the transport.
+
+Before publishing any part of a poll, compare SDK-versus-raw clock progression.
+An offset change greater than 5 ms in either direction starts a shared timing
+recovery. OAK supplies raw device times for all streams; D455 supplies unwrapped
+32-bit video clock metadata. D455 RSUSB does not reliably expose same-sample raw
+IMU timestamps, so its video clocks detect shared corrections and its individual
+IMU admission checks remain independent. The 5 ms step limit is a discontinuity
+policy, not a clock-accuracy claim. A true raw sampling gap is not a clock step.
+
+Recovery rotates the published generation, clears timing and interpolation
+history, and drains without publishing while enabled streams settle for two
+continuous seconds. No sample is buffered for later release. Raw RGB progress
+continues to drive the device-stall check. Generation now identifies a continuous
+acquisition timeline within the device session; recovery does not reopen the
+device. `clock_state=recovering` and unavailable stream status persist throughout
+the hold, and cumulative counters survive it. VO/VIO consumers must restart their
+estimator at this boundary; an association-cache reset alone is insufficient.
+The coordinated `visual_odometry` supervisor performs that restart.
 
 A fixed `unix_offset_ns` sampled once per session maps monotonic acquisition time
 into each standard ROS header. The original monotonic time and mapping remain in
@@ -210,8 +305,8 @@ describes raw versus transformed reports; actual support remains SDK/device-spec
 OAK Device Sync input queues and host image output are nonblocking depth 1. ROS frame
 and standard image QoS are best-effort keep-last 1. The acquisition worker owns
 the SDK and never runs inference or consumer callbacks. IMU SDK output retains
-four batches of at most ten packets (at most twenty individual sensor reports
-per poll); ROS IMU queues retain four messages. No work list grows with runtime.
+sixteen batches of at most ten paired packets (at most 320 individual sensor
+reports per poll); ROS IMU queues retain four messages. No work list grows with runtime.
 D455 retains at most two frames per image stream and twenty motion samples;
 oldest entries are replaced when full. Its SDK queue request is four video frames
 or sixteen motion frames per sensor. Intentional native-rate to output-rate admission

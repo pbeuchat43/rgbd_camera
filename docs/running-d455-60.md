@@ -13,8 +13,8 @@ from a lit stationary scene, not a display-latency or moving-scene accuracy test
 - Ubuntu 24.04 arm64 and ROS 2 Jazzy, with `rgbd_camera` built using
   librealsense **2.56.5**, commit `38a41441971387197193ad3aeae3cefe6a11f2cb`,
   and D455 firmware **5.17.0.10**. The build uses the userspace RSUSB backend.
-- A dual-backend build also uses DepthAI **3.9.0**, commit
-  `ac928141ef7750bf3082b5e1c319a115618660e7`. A RealSense-only build does not
+- A dual-backend build also uses DepthAI **3.12.1**, commit
+  `da14320483864f7cdabada9e70d4d6a2115eff9a`. A RealSense-only build does not
   require DepthAI. Follow the [build guide](verification.md#dependencies-and-build).
 - The execution account already has USB access. Reserve the development host
   before testing; these commands do not install a deployment, change USB rules,
@@ -31,7 +31,7 @@ RGBD_WORKSPACE=/absolute/path/to/isolated/ros-workspace
 RGBD_CAMERA_REPO="$RGBD_WORKSPACE/src/rgbd_camera"
 RGBD_REALSENSE_PREFIX=/absolute/path/to/librealsense-2.56.5
 # Set this only for a dual-backend build:
-RGBD_DEPTHAI_PREFIX=/absolute/path/to/depthai-3.9.0
+RGBD_DEPTHAI_PREFIX=/absolute/path/to/depthai-3.12.1
 RGBD_D455_SERIAL=YOUR_D455_SDK_SERIAL
 
 source /opt/ros/jazzy/setup.bash

@@ -14,7 +14,7 @@ namespace rgbd_camera {
 namespace {
 void require(bool condition, const char* reason) { if (!condition) throw std::runtime_error(reason); }
 void validate_intrinsics(const rs2_intrinsics& intrinsics, bool color) {
-  require((intrinsics.width == 640 && intrinsics.height == 480) ||
+  require((intrinsics.width == 640 && (intrinsics.height == 480 || (color && intrinsics.height == 360))) ||
           (intrinsics.width == 1280 && intrinsics.height == 720), "unsupported RealSense dimensions");
   require(std::isfinite(intrinsics.fx) && std::isfinite(intrinsics.fy) && intrinsics.fx > 0 && intrinsics.fy > 0 &&
           std::isfinite(intrinsics.ppx) && std::isfinite(intrinsics.ppy) && intrinsics.ppx >= 0 &&

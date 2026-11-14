@@ -3,7 +3,9 @@
 The bounded acquisition milestone passed native build, synthetic contract, and
 short hardware checks. This summary omits private host, device, deployment and
 service identities. Detailed raw reports, installed artifact hashes, environment
-records and preservation audits are retained in the local development archive.
+records and preservation audits were retained in the local development archive.
+That local archive was later intentionally discarded. Availability of any copies
+on Jah has not been checked.
 
 The [source manifest](source-sha256.json) identifies the implementation and final
 verification tools. Those files were compared byte-for-byte with the tested
@@ -36,7 +38,8 @@ External readers can drop frames. The slow-reader check maintained source progre
 and recent fast-reader data, but did not establish full-rate fan-out to every
 subscriber. An earlier shared Python-executor measurement also showed observer
 interference; that result was not treated as a camera-rate failure. The raw
-measurements and their exact conditions remain in the local archive.
+measurements and their exact conditions were recorded in that discarded local
+archive.
 
 Synthetic loss/recovery tests do not establish physical unplug behavior. No metric
 depth or IMU accuracy ground truth, camera-to-IMU mounting calibration, orientation

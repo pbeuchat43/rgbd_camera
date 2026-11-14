@@ -171,7 +171,7 @@ measurement window. Their final camera status snapshots recorded:
 The IMU was streaming while video was unavailable. These are startup diagnostic
 counts, not timed throughput measurements. The observer did not record a reason
 for each rejected pair, so this evidence does not distinguish skew rejection from
-age rejection. Both attempts and their failures remain in the private records;
+age rejection. Both attempts and their failures were documented in the private records;
 the confirmation-rate selection excludes this point.
 
 ## OAK ten-minute confirmations
@@ -222,7 +222,7 @@ presenting a completed ten-minute rate or latency result.
 
 The final diagnostic status recorded 17,607 admitted frames and 49,747 admissions
 per IMU sensor. These totals include startup and are not a successful measurement
-window. Raw records and the error log are retained. The
+window. Raw records and the error log were retained at the time. The
 [motion clock guard](../../../rgbd_camera/src/core.cpp) requires positive
 acquisition/receipt times, receipt no later than the current monotonic time, and
 acquisition no later than receipt plus the backend's declared future tolerance.
@@ -262,4 +262,6 @@ including the degraded rates and the 40 Hz delivery loss.
 completeness, counts, rates and ages. [failures.csv](failures.csv) records both
 60 Hz startup failures and the interrupted 35 Hz confirmation. Full raw records,
 scene images, build identities, installed SDKs, model and preservation audits
-are retained in the private runtime/evidence archive.
+were retained in the private runtime/evidence archive. The local historical
+copies were later intentionally discarded. Availability of any copies on Jah
+has not been checked.

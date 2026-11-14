@@ -25,10 +25,10 @@ was part of this milestone.
   The measurements below describe the default transport, not that profile.
 
 The [source digest manifest](source-sha256.json) identifies the verified provider,
-interfaces, tests and tools. Private records also identify installed binaries,
+interfaces, tests and tools. The original private records identified installed binaries,
 SDK builds, firmware image/backup, full logs and the unchanged detector engine.
-Failed exploratory runs with SDK 2.56.5 / firmware 5.13.0.55 are retained privately
-and are not final acceptance evidence.
+Failed exploratory runs with SDK 2.56.5 / firmware 5.13.0.55 were retained privately
+at the time and are not final acceptance evidence.
 
 ## Builds and functional checks
 
@@ -106,8 +106,10 @@ Standard image branches, shutdown and invalid selection checks passed.
 The installed dev17 file inventory and all 1,453 file hashes, selected deployment,
 runtime profile, service process/invocation identities and classroom checkout
 were checked against the pre-work baseline. Detailed device/host identities,
-scene images, raw measurements, firmware records and preservation audits remain
-in the private development archive.
+scene images, raw measurements, firmware records and preservation audits were
+recorded in the private development archive. The local historical copies were
+later intentionally discarded. Availability of any copies on Jah has not been
+checked.
 
 No endurance test, physical unplug test, surveyed geometry accuracy, detector
 recall, cross-device synchronization, Isaac ROS deployment, browser/runtime

@@ -33,6 +33,10 @@ class Fixture : public Provider {
     frame->acquisition_ns = now - 20000000;
     frame->depth_acquisition_ns = frame->acquisition_ns + (sequence_ >= 10 && sequence_ < 50 ? 6000000 : 1000000);
     frame->received_ns = now;
+    frame->exposure_midpoint_ns = frame->acquisition_ns + 2000000;
+    frame->exposure_duration_ns = 4000000;
+    frame->depth_exposure_midpoint_ns = frame->depth_acquisition_ns;
+    frame->depth_exposure_duration_ns = 1000000;
     frame->geometry.k = {500, 0, 320, 0, 500, 320, 0, 0, 1};
     frame->geometry.calibration_id = "fixture";
     frame->bgr.resize(640 * 640 * 3); frame->depth_le.resize(640 * 640 * 2);
@@ -71,6 +75,13 @@ int main(int argc, char** argv) {
       [&](rgbd_camera_interfaces::msg::Frame::ConstSharedPtr frame) {
         ++frames; check(frame->capture.generation == "generation-test", "generation lost");
         check(frame->capture.stream_id == "rgbd", "image stream identity lost");
+        check(frame->capture.schema_version == 2 &&
+          frame->capture.exposure_midpoint_ns == frame->capture.acquisition_ns + 2000000 &&
+          frame->capture.exposure_duration_ns == 4000000 &&
+          frame->depth_exposure_midpoint_ns == frame->depth_acquisition_ns &&
+          frame->depth_exposure_duration_ns == 1000000, "explicit exposure timing lost");
+        check(rclcpp::Time(frame->rgb.header.stamp).nanoseconds() ==
+          frame->capture.acquisition_ns + frame->capture.unix_offset_ns, "legacy header meaning changed");
         check(frame->rgb.data.size() == 640 * 640 * 3, "RGB data missing");
         check(frame->depth.data.size() == 640 * 640 * 2, "depth data missing");
         check(frame->rgb_info.header == frame->rgb.header, "RGB geometry binding lost");

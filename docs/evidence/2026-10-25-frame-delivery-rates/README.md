@@ -4,7 +4,9 @@ This investigation separates camera admission, external frame delivery and
 detector-result delivery. Checks use the reserved development Jetson, isolated
 files and ROS domains, and the existing GPU cone model. The installed runtime
 is not replaced. Exact device identities, raw CSV, logs, binary hashes and host
-preservation checks belong in the private development archive.
+preservation checks were recorded in the private development archive. The local
+historical copies were later intentionally discarded. Availability of any copies
+on Jah has not been checked.
 
 ## External-reader loss
 
@@ -37,7 +39,7 @@ probe and controller are available under `tools/rate_probe` and
 `tools/benchmark_rates.py`.
 The [source digest manifest](source-sha256.json) identifies the final provider,
 interfaces and tools. Earlier build variants are identified below; private
-archives retain each exact source snapshot and corresponding binary hashes.
+archives held each exact source snapshot and corresponding binary hashes.
 
 Counts compare consumer capture identities with `Status.frames` admission
 deltas over identical acquisition boundaries. Native sequence gaps from D455
@@ -48,7 +50,7 @@ the delivery comparison uses actual batch capture IDs.
 Source age is external callback time minus **RGB acquisition time**. It includes
 camera processing, admission, inference where applicable, and transport. It is
 not the age of the older of the two image exposures. RGB/depth timestamps and
-skew remain in the raw records. The lit, stationary cone scene exercises positive
+skew were captured in the original raw records. The lit, stationary cone scene exercises positive
 detection and spatial estimation. A first OAK sweep affected by lights turning
 off was retained as diagnostic evidence and excluded from positive-workload
 results; those rates were repeated after lighting was restored.
@@ -370,7 +372,7 @@ at 10 / 60 Hz. Depth preceded RGB by 6.91–10.83 ms at 10 Hz and 7.17–7.63 ms
   These checks do not establish high-rate performance with those extra outputs.
 - All 33 final source/interface/tool hashes matched the tested source and tool
   copies. Binary hashes, loaded-library records and the approved firmware backup
-  remain in the private archive.
+  were recorded in the private archive.
 - The existing deployment selection, both service process/invocation identities,
   all 1,453 installed files and all four profile files were unchanged. Existing
   classroom Git state and the 15 W power mode were also unchanged. No runtime

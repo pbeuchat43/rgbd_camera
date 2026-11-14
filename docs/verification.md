@@ -6,11 +6,17 @@ replace an existing deployment, source its application overlays, alter power set
 or start unrelated workloads. Hold the shared verification reservation while
 using the selected camera. Vehicle actuation is outside these checks.
 
+For a new provider or a substantial adapter change, use the
+[camera-adapter qualification checklist](adapter-qualification.md) to select
+profiles, record criteria and cover geometry, clocks, VO/VIO, recovery and the
+installed workload. It distinguishes software checks from observed hardware and
+physical acceptance; it does not imply support for the planned ZED/Orbbec devices.
+
 ## Dependencies and build
 
 Required: Ubuntu 24.04 arm64, ROS 2 Jazzy (`rclcpp`, `rclcpp_components`,
 `sensor_msgs`, `rosidl_default_generators`, `ament_cmake`), C++17, CMake ≥3.20,
-OpenSSL development headers and colcon. OAK builds require DepthAI **3.9.0
+OpenSSL development headers and colcon. OAK builds require DepthAI **3.12.1
 exactly**. RealSense builds require librealsense **2.56.5 exactly** plus OpenCV
 core/imgproc. At least one backend must be enabled.
 No Python detector, TensorRT, CUDA or model weights are needed.
@@ -22,7 +28,7 @@ source /opt/ros/jazzy/setup.bash
 colcon build --packages-select rgbd_camera_interfaces
 ```
 
-Build DepthAI at `ac928141ef7750bf3082b5e1c319a115618660e7` in a separate prefix.
+Build DepthAI at `da14320483864f7cdabada9e70d4d6a2115eff9a` in a separate prefix.
 `tools/build_sdk.sh PREFIX` records the minimal SDK configuration used by this
 slice. It fetches dependencies into its build directory and installs only to
 PREFIX. It does not install apt packages or change the system SDK. The upstream
@@ -78,6 +84,12 @@ deduplication and calibration identity. The adapter test uses an injected synthe
 provider in a real intra-process ROS graph; it checks read-only parameters,
 association fields, IMU unavailable fields, freshness, skew recovery, and simulated
 device loss/cleanup. It does not establish hardware behavior.
+The clock recovery tests cover rejected estimates without advancing accepted
+watermarks, positive and negative SDK mapping steps, two seconds of stable
+observations, raw-device resets and strict-policy failure. A composed synthetic
+provider check verifies recovery with a new generation and one provider open,
+including combined-IMU reset and continued publication. These tests do not
+establish SDK clock accuracy or observed hardware recovery.
 The optional RealSense geometry test uses synthetic nonidentity rotation and
 translation, depth units, occlusion collisions, rectification with nonzero
 distortion, malformed calibration, epoch conversion and microsecond timestamp
@@ -174,8 +186,10 @@ The subsequent [all-output campaign](evidence/2026-10-26-all-output-rates/README
 measures IMU and standard images alongside the cone pipeline, including successful
 native D455 runs and the observed OAK delivery and clock-mapping failures.
 Detailed host/device identities, installed
-artifact hashes, measurements, and preservation audits remain in the local
-development archive; they are not part of this public repository.
+artifact hashes, measurements, and preservation audits were kept in the local
+development archive, outside this public repository. That local archive was
+later intentionally discarded. Availability of any copies on Jah has not been
+checked.
 
 ## Rate measurements with an external reader
 

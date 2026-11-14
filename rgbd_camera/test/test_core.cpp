@@ -24,6 +24,8 @@ Frame frame(uint64_t sequence = 1, int64_t stamp = 1000000000) {
 int main() {
   Config config;
   config.validate();
+  // Preserve the terminal-policy contract checks; recovery has separate tests.
+  config.timestamp_policy = "strict";
   check(config.output_width() == 640 && config.output_height() == 640);
   Config footage; footage.width = 1280; footage.height = 720; footage.fps = 30; footage.validate();
   footage.backend = "realsense"; footage.validate();
@@ -67,6 +69,18 @@ int main() {
   malformed = frame(); malformed.acquisition_ns = malformed.received_ns + 1;
   rejects([&] { bad.admit(malformed, malformed.received_ns); });
   PairGate restart(config); check(!restart.admit(first, first.received_ns));
+  auto timed = frame(); timed.exposure_midpoint_ns = timed.acquisition_ns + 2000000;
+  timed.exposure_duration_ns = 4000000;
+  timed.depth_exposure_midpoint_ns = timed.depth_acquisition_ns;
+  timed.depth_exposure_duration_ns = 1000000;
+  PairGate exposure(config); check(!exposure.admit(timed, timed.received_ns));
+  for (int variant = 0; variant < 3; ++variant) {
+    auto invalid = timed;
+    if (variant == 0) invalid.exposure_midpoint_ns = invalid.received_ns + 1;
+    if (variant == 1) invalid.exposure_duration_ns = -1;
+    if (variant == 2) invalid.depth_exposure_midpoint_ns = 0;
+    PairGate invalid_gate(config); rejects([&] { invalid_gate.admit(invalid, invalid.received_ns); });
+  }
   MotionGate motion;
   Motion a{MotionKind::Accelerometer, 1, 1000, 1100, {0, 0, 9.81}};
   check(motion.admit(a, 1100, 1000)); check(!motion.admit(a, 1100, 1000));

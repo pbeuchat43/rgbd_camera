@@ -1,7 +1,7 @@
 # rgbd_camera
 
 Shared RGB-D acquisition for the research robot platform. Providers target
-OAK-D/RVC2 with DepthAI 3.9.0 and RealSense D455 firmware 5.17.0.10 with librealsense 2.56.5
+OAK-D/RVC2 with DepthAI 3.12.1 and RealSense D455 firmware 5.17.0.10 with librealsense 2.56.5
 on Ubuntu 24.04 arm64 / ROS 2 Jazzy.
 It provides a standalone executable and a composable C++ camera node. A detector,
 model, GPU runtime or web server is not required.
@@ -30,6 +30,18 @@ declare the allowance. This policy is not a measured clock accuracy guarantee.
 See the [interface contract](docs/interface-v1.md),
 [first slice and acceptance](docs/first-slice.md), and
 [build and verification guide](docs/verification.md).
+The [camera-adapter qualification checklist](docs/adapter-qualification.md)
+records reusable acceptance scenarios for future providers, including the planned
+ZED 2i and Orbbec integrations; neither is qualified by the existing evidence.
+The [offline OAK clock mapper prototype](experiments/oak-clock-mapper/README.md)
+records timestamp-fault replay and its accuracy limits. It is not enabled in the
+camera. The default `timestamp_policy=recover` preserves SDK timestamps, drops
+and counts invalid mapped samples, and holds publication at an SDK clock
+discontinuity. After every enabled stream has been valid and fresh for two
+seconds, publication resumes with a new generation. `timestamp_policy=strict`
+stops on clock faults. Neither policy corrects SDK clock-estimation error.
+Camera interfaces 0.3.0 add persistent clock state and counters to Status;
+rebuild all readers and the estimator against the matching interface package.
 For ordinary use, the [D455 native 60 Hz recipe](docs/running-d455-60.md) covers
 camera-only operation and the camera-plus-detector composition, including IMU,
 standard images, pairing tolerance and the local DDS setup.
@@ -69,7 +81,10 @@ encoding and deployment migration remain separate responsibilities.
 
 Canonical repository: https://github.com/pbeuchat43/rgbd_camera.
 `main` is the verified baseline and `dev` the development branch.
-Version: 0.3.0 (development milestone, not a stable platform release).
+Version: 0.5.0 (development milestone, not a stable platform release).
+The [odometry input contract](docs/interface-v1.md#optional-odometry-input-package-040)
+adds explicit exposure timing, optional stereo and bounded gyro-time combined IMU.
+Camera interfaces 0.3.0 require rebuilding the detector, recorder and VIO together.
 
 MIT License, copyright 2026 Paul N. Beuchat. See [NOTICE.md](NOTICE.md) for
 upstream references and their separate licensing.

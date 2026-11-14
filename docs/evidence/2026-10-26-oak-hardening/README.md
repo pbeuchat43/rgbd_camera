@@ -176,7 +176,7 @@ clock-tolerance violations.
 
 Every batch contained exactly two valid spatial results. There were also **172
 additional invalid spatial results**. The zero-invalid-XYZ screen therefore
-failed for this recipe check, and remains explicitly false in the private check
+failed for this recipe check, and was explicitly false in the private check
 record; the launch and delivery checks passed. Invalid spatial results retain
 their 2D detections and carry an invalid flag/reason, as required by the
 [detector contract](https://github.com/pbeuchat43/rgbd_object_detector/blob/main/docs/interface-v1.md).
@@ -206,7 +206,9 @@ zero-output window and deliberately paused readers. [outputs.csv](outputs.csv)
 contains 80 optional-stream rows with reference completeness. [failures.csv](failures.csv)
 retains the OAK 60 Hz readiness failure and the first D455 CLI discovery failure.
 Full raw records, both observer variants, diagnostic and final runtime binaries,
-SDK installation prefixes, engine, logs and preservation records are retained in
-the private archive. The exact historical OAK clock fault and original external
+SDK installation prefixes, engine, logs and preservation records were retained in
+the private archive. The local historical copies were later intentionally
+discarded. Availability of any copies on Jah has not been checked.
+The exact historical OAK clock fault and original external
 pause were not reproduced; the policy and controlled queue observations above
 state the limits of the conclusions.
